@@ -1,0 +1,32 @@
+﻿# Dependencies
+node_modules/
+
+# Environment variables and private configuration
+.env
+.env.*
+!.env.example
+.grok/
+.vercel/
+
+# Archives, attachments, and generated evidence
+artifacts/
+attachments/
+screenshots/
+
+# Build and test output
+dist/
+build/
+.next/
+coverage/
+*.log
+
+# Local databases and runtime files
+*.db
+*.sqlite
+*.sqlite3
+*.local
+
+# Operating system files
+.DS_Store
+Thumbs.db
+desktop.ini
