@@ -5,8 +5,20 @@ export type Payment = "Cash" | "JazzCash" | "EasyPaisa" | "Card" | "Credit";
 /** Physical/digital tender used to receive money. Independent of commercial payment status (Credit vs paid-in-full). */
 export type TenderMethod = "Cash" | "Card" | "JazzCash" | "EasyPaisa";
 
+export type Branch = {
+  id: number;
+  name: string;
+  code: string;
+  address: string;
+  phone: string;
+  isActive: boolean;
+};
+
+export const MAX_BRANCHES = 10;
+
 export type HeldSale = {
   id: number;
+  branch_id: number;
   created_at: string;
   customer_id: number | null;
   payment: Payment;
@@ -64,6 +76,7 @@ export type SaleItem = {
 
 export type Sale = {
   id: number;
+  branch_id: number;
   bill_id: string;
   created_at: string;
   customer_id: number | null;
@@ -100,6 +113,7 @@ export type Sale = {
 
 export type Expense = {
   id: number;
+  branch_id: number;
   created_at: string;
   category: string;
   description: string;
@@ -125,6 +139,7 @@ export type Settings = {
 
 export type EndOfDay = {
   id: number;
+  branch_id: number;
   date: string;
   closed_at: string;
   closed_by: number;
@@ -150,6 +165,7 @@ export type EndOfDay = {
 /** Append-only amendment to a previously closed business day. Original EndOfDay is never mutated. */
 export type DayAmendment = {
   id: number;
+  branch_id: number;
   end_of_day_id: number;
   date: string;
   amended_at: string;
@@ -160,6 +176,7 @@ export type DayAmendment = {
 
 export type StockMove = {
   id: number;
+  branch_id: number;
   created_at: string;
   product_id: number;
   product_name: string;
@@ -187,13 +204,15 @@ export type NextIds = {
   held_sale: number;
   stock_move: number;
   day_amendment: number;
+  branch: number;
 };
 
-export const DATA_VERSION = 6;
+export const DATA_VERSION = 7;
 
 export type PosDb = {
   version: number;
   users: User[];
+  branches: Branch[];
   categories: Category[];
   products: Product[];
   customers: Customer[];
