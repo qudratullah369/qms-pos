@@ -1,4 +1,4 @@
-import { Download, RotateCcw, Upload } from "lucide-react";
+import { Download, RotateCcw, Upload, Plus, Building2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
@@ -11,19 +11,30 @@ import { PageHeader } from "@/components/pos/page-header";
 import { CURRENCIES, LOCALES, TIME_ZONES } from "@/lib/pos/money";
 import { can, PERMISSION_LABELS, permissionsFor } from "@/lib/pos/permissions";
 import { usePosStore } from "@/lib/pos/store";
-import { ROLES, type Settings } from "@/lib/pos/types";
+import { MAX_BRANCHES, ROLES, type Branch, type Settings } from "@/lib/pos/types";
 
 export function SettingsPage() {
   const settings = usePosStore((s) => s.settings);
   const users = usePosStore((s) => s.users);
   const role = usePosStore((s) => s.session?.role);
+  const branches = usePosStore((s) => s.branches || []);
   const saveSettings = usePosStore((s) => s.saveSettings);
+  const saveBranch = usePosStore((s) => s.saveBranch);
+  const deleteBranch = usePosStore((s) => s.deleteBranch);
   const exportDb = usePosStore((s) => s.exportDb);
   const importDb = usePosStore((s) => s.importDb);
   const resetDemo = usePosStore((s) => s.resetDemo);
   const changePin = usePosStore((s) => s.changePin);
   const [form, setForm] = useState<Settings>(settings);
   const [pins, setPins] = useState<Record<number, string>>({});
+  const [branchForm, setBranchForm] = useState<Partial<Branch> & { name: string; code: string }>({
+    name: "",
+    code: "",
+    address: "",
+    phone: "",
+    isActive: true,
+  });
+  const [editingBranchId, setEditingBranchId] = useState<number | null>(null);
 
   function saveProfile() {
     if (form.currency !== settings.currency) {
@@ -33,6 +44,32 @@ export function SettingsPage() {
     const err = saveSettings(form);
     if (err) return toast.error(err);
     toast.success("Settings saved");
+  }
+
+  function handleSaveBranch() {
+    const err = saveBranch({
+      id: editingBranchId ?? undefined,
+      name: branchForm.name,
+      code: branchForm.code,
+      address: branchForm.address || "",
+      phone: branchForm.phone || "",
+      isActive: branchForm.isActive !== false,
+    });
+    if (err) return toast.error(err);
+    toast.success(editingBranchId ? "Branch updated" : "Branch added");
+    setBranchForm({ name: "", code: "", address: "", phone: "", isActive: true });
+    setEditingBranchId(null);
+  }
+
+  function startEdit(b: Branch) {
+    setEditingBranchId(b.id);
+    setBranchForm({
+      name: b.name,
+      code: b.code,
+      address: b.address,
+      phone: b.phone,
+      isActive: b.isActive,
+    });
   }
 
   function backup() {
@@ -71,7 +108,7 @@ export function SettingsPage() {
 
   return (
     <div>
-      <PageHeader title="Settings" subtitle="Store profile, currency, timezone, and staff permissions" />
+      <PageHeader title="Settings" subtitle="Store profile, branches, currency, timezone, and staff permissions" />
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <h3 className="mb-3 text-sm font-medium">Store profile</h3>
@@ -136,7 +173,7 @@ export function SettingsPage() {
                 }}
               />
               <p className="mt-1 text-xs text-subtle">
-                {form.pricesIncludeTax ? "Shelf prices already include this tax." : "Tax is added on top of the discounted total."} Zero turns tax off. This is a calculation, not a legal filing.
+                {form.pricesIncludeTax ? "Shelf prices already include this tax." : "Tax is added on top of the discounted total."} Zero turns tax off.
               </p>
             </div>
             <label className="flex items-center gap-2 text-sm">
@@ -157,11 +194,107 @@ export function SettingsPage() {
               />
             </div>
             <Button onClick={saveProfile}>Save settings</Button>
-            <p className="text-xs text-subtle">
-              Arabic and Urdu locales switch the layout to right-to-left. Amounts stay in integer minor units of the selected currency.
-            </p>
           </div>
         </Card>
+
+        {/* Branches Management */}
+        {can(role, "settings.write") ? (
+          <Card>
+            <h3 className="mb-3 flex items-center gap-2 text-sm font-medium">
+              <Building2 className="size-4" />
+              Branches ({branches.length}/{MAX_BRANCHES})
+            </h3>
+            <div className="mb-4 space-y-2">
+              {branches.map((b) => (
+                <div
+                  key={b.id}
+                  className="flex items-center justify-between rounded-lg border border-border px-3 py-2 text-sm"
+                >
+                  <div>
+                    <span className="font-medium">{b.name}</span>
+                    <span className="ml-2 rounded bg-elevated px-1.5 py-0.5 text-[10px] font-mono text-muted">
+                      {b.code}
+                    </span>
+                    {!b.isActive && (
+                      <span className="ml-2 text-xs text-warn">Inactive</span>
+                    )}
+                  </div>
+                  <div className="flex gap-1">
+                    <Button variant="ghost" size="sm" onClick={() => startEdit(b)}>
+                      Edit
+                    </Button>
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            <div className="space-y-3 border-t border-border pt-3">
+              <p className="text-xs text-muted">
+                {editingBranchId ? "Editing branch" : "Add new branch"} (max {MAX_BRANCHES})
+              </p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                <div>
+                  <Label>Name</Label>
+                  <Input
+                    value={branchForm.name}
+                    onChange={(e) => setBranchForm({ ...branchForm, name: e.target.value })}
+                    placeholder="Gulberg Branch"
+                  />
+                </div>
+                <div>
+                  <Label>Code</Label>
+                  <Input
+                    value={branchForm.code}
+                    onChange={(e) => setBranchForm({ ...branchForm, code: e.target.value.toUpperCase() })}
+                    placeholder="GLB"
+                    maxLength={8}
+                  />
+                </div>
+              </div>
+              <div>
+                <Label>Address</Label>
+                <Input
+                  value={branchForm.address || ""}
+                  onChange={(e) => setBranchForm({ ...branchForm, address: e.target.value })}
+                  placeholder="Optional"
+                />
+              </div>
+              <div>
+                <Label>Phone</Label>
+                <Input
+                  value={branchForm.phone || ""}
+                  onChange={(e) => setBranchForm({ ...branchForm, phone: e.target.value })}
+                  placeholder="Optional"
+                />
+              </div>
+              <label className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={branchForm.isActive !== false}
+                  onChange={(e) => setBranchForm({ ...branchForm, isActive: e.target.checked })}
+                />
+                Active
+              </label>
+              <div className="flex gap-2">
+                <Button onClick={handleSaveBranch}>
+                  <Plus className="size-4" />
+                  {editingBranchId ? "Update Branch" : "Add Branch"}
+                </Button>
+                {editingBranchId && (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setEditingBranchId(null);
+                      setBranchForm({ name: "", code: "", address: "", phone: "", isActive: true });
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                )}
+              </div>
+            </div>
+          </Card>
+        ) : null}
 
         {can(role, "settings.pin") ? (
           <Card>
@@ -206,7 +339,7 @@ export function SettingsPage() {
         <Card className="lg:col-span-2">
           <h3 className="mb-2 text-sm font-medium">Who can do what</h3>
           <p className="mb-3 text-sm text-muted">
-            Permissions are enforced in the till, not only by hiding a button. A cashier cannot record expenses or read gross margin by calling the store directly.
+            Permissions are enforced in the till, not only by hiding a button.
           </p>
           <div className="overflow-auto">
             <table className="w-full text-left text-sm">
@@ -239,7 +372,7 @@ export function SettingsPage() {
         <Card className="lg:col-span-2">
           <h3 className="mb-2 text-sm font-medium">Backup</h3>
           <p className="mb-4 text-sm text-muted">
-            Products, sales, and customers stay on this device. There is no multi-shop sync. Export a JSON backup and keep a copy off the phone.
+            Products, sales, and customers stay on this device. Export a JSON backup and keep a copy off the phone.
           </p>
           <div className="flex flex-wrap gap-2">
             {can(role, "settings.backup") ? (
