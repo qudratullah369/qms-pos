@@ -14,12 +14,17 @@ function daysAgoIso(days: number): string {
 
 /** Demo amounts are integer minor units. PKR uses 2 (250.00 rupees = 25000). */
 export const SEED: PosDb = {
-  version: 5,
+  version: 7,
   users: [
     { id: 1, name: "Owner", role: "admin", pin: "1234" },
     { id: 2, name: "Floor manager", role: "manager", pin: "2468" },
     { id: 3, name: "Cashier", role: "cashier", pin: "0000" },
     { id: 4, name: "Accountant", role: "accountant", pin: "1357" },
+  ],
+  branches: [
+    { id: 1, name: "Main Store", code: "MAIN", address: "Main Market, Lahore", phone: "042-111-7677", isActive: true },
+    { id: 2, name: "Gulberg Branch", code: "GLB", address: "Gulberg III, Lahore", phone: "042-357-8901", isActive: true },
+    { id: 3, name: "DHA Branch", code: "DHA", address: "DHA Phase 5, Lahore", phone: "042-111-3344", isActive: true },
   ],
   categories: [
     { id: 1, name: "General" },
@@ -50,6 +55,7 @@ export const SEED: PosDb = {
   sales: [
     {
       id: 1,
+      branch_id: 1,
       bill_id: "QMS-00001",
       created_at: daysAgoIso(2),
       customer_id: 2,
@@ -75,6 +81,7 @@ export const SEED: PosDb = {
     },
     {
       id: 2,
+      branch_id: 1,
       bill_id: "QMS-00002",
       created_at: daysAgoIso(1),
       customer_id: 1,
@@ -100,6 +107,7 @@ export const SEED: PosDb = {
     },
     {
       id: 3,
+      branch_id: 2,
       bill_id: "QMS-00003",
       created_at: daysAgoIso(0),
       customer_id: null,
@@ -129,8 +137,8 @@ export const SEED: PosDb = {
   held_sales: [],
   stock_moves: [],
   expenses: [
-    { id: 1, created_at: daysAgoIso(5), category: "Rent", description: "Shop rent — September", amount: 2500000, affects_cash: false },
-    { id: 2, created_at: daysAgoIso(1), category: "Utilities", description: "Electricity bill", amount: 480000, affects_cash: false },
+    { id: 1, branch_id: 1, created_at: daysAgoIso(5), category: "Rent", description: "Shop rent — September", amount: 2500000, affects_cash: false },
+    { id: 2, branch_id: 1, created_at: daysAgoIso(1), category: "Utilities", description: "Electricity bill", amount: 480000, affects_cash: false },
   ],
   settings: {
     storeName: "QMS POS Store",
@@ -144,7 +152,16 @@ export const SEED: PosDb = {
     pricesIncludeTax: false,
     taxRegistration: "",
   },
-  next: { product: 15, category: 4, customer: 4, sale: 4, expense: 3, end_of_day: 1, held_sale: 1, stock_move: 1,
+  next: {
+    product: 15,
+    category: 4,
+    customer: 4,
+    sale: 4,
+    expense: 3,
+    end_of_day: 1,
+    held_sale: 1,
+    stock_move: 1,
     day_amendment: 1,
+    branch: 4,
   },
 };
