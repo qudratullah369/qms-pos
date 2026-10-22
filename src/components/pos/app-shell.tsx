@@ -11,6 +11,7 @@ import {
   Users,
   Wallet,
   X,
+  ChevronDown,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -40,8 +41,15 @@ export function AppShell({ children }: { children: ReactNode }) {
   const storeName = usePosStore((s) => s.settings.storeName);
   const logout = usePosStore((s) => s.logout);
   const cartCount = usePosStore((s) => s.cart.reduce((a, c) => a + c.qty, 0));
+  const branches = usePosStore((s) => s.branches || []);
+  const currentBranchId = usePosStore((s) => s.currentBranchId);
+  const setCurrentBranch = usePosStore((s) => s.setCurrentBranch);
   const [more, setMore] = useState(false);
   const [online, setOnline] = useState(true);
+  const [branchOpen, setBranchOpen] = useState(false);
+
+  const currentBranch = branches.find((b) => b.id === currentBranchId);
+  const activeBranches = branches.filter((b) => b.isActive);
 
   useEffect(() => {
     setOnline(navigator.onLine);
@@ -49,8 +57,12 @@ export function AppShell({ children }: { children: ReactNode }) {
     const onOffline = () => setOnline(false);
     window.addEventListener("online", onOnline);
     window.addEventListener("offline", onOffline);
-    return () => { window.removeEventListener("online", onOnline); window.removeEventListener("offline", onOffline); };
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
   }, []);
+
   const items = NAV.filter((n) => canView(session?.role, n.id));
   const mobileItems = MOBILE_PRIMARY.filter((id) => canView(session?.role, id));
 
@@ -68,9 +80,58 @@ export function AppShell({ children }: { children: ReactNode }) {
             <p className="hidden text-xs text-muted sm:block">{storeName}</p>
           </div>
         </div>
+
         <div className="flex items-center gap-2">
+          {/* Branch Switcher */}
+          {activeBranches.length > 0 && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setBranchOpen((v) => !v)}
+                className="flex items-center gap-1.5 rounded-lg border border-border bg-elevated px-2.5 py-1.5 text-xs font-medium hover:bg-surface"
+              >
+                <Store className="size-3.5 text-accent" />
+                <span className="max-w-[100px] truncate sm:max-w-[140px]">
+                  {currentBranch?.name || "Branch"}
+                </span>
+                <ChevronDown className="size-3.5 text-muted" />
+              </button>
+              {branchOpen && (
+                <>
+                  <div
+                    className="fixed inset-0 z-40"
+                    onClick={() => setBranchOpen(false)}
+                  />
+                  <div className="absolute right-0 top-full z-50 mt-1 min-w-[180px] rounded-lg border border-border bg-surface py-1 shadow-panel">
+                    {activeBranches.map((b) => (
+                      <button
+                        key={b.id}
+                        type="button"
+                        onClick={() => {
+                          setCurrentBranch(b.id);
+                          setBranchOpen(false);
+                        }}
+                        className={cn(
+                          "flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-elevated",
+                          b.id === currentBranchId && "bg-elevated font-medium",
+                        )}
+                      >
+                        <span className="rounded bg-elevated px-1.5 py-0.5 text-[10px] font-mono text-muted">
+                          {b.code}
+                        </span>
+                        <span className="truncate">{b.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
           <Badge className="capitalize">{session?.role}</Badge>
-          <Badge className={online ? "text-accent" : "text-warn"}>{online ? "Online" : "Offline"}</Badge>
+          <Badge className={online ? "text-accent" : "text-warn"}>
+            {online ? "Online" : "Offline"}
+          </Badge>
           <Button variant="ghost" size="sm" onClick={logout}>
             <LogOut className="size-4" />
             <span className="hidden sm:inline">Sign out</span>
