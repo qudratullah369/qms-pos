@@ -81,7 +81,7 @@ export function SettingsPage() {
     a.download = "qms-pos-backup-" + new Date().toISOString().slice(0, 10) + ".json";
     a.click();
     URL.revokeObjectURL(a.href);
-    toast.success("Backup downloaded. It contains staff PINs — keep it private.");
+    toast.success("Backup downloaded. Staff PINs are never included in backups.");
   }
 
   function restore() {
@@ -197,7 +197,6 @@ export function SettingsPage() {
           </div>
         </Card>
 
-        {/* Branches Management */}
         {can(role, "settings.write") ? (
           <Card>
             <h3 className="mb-3 flex items-center gap-2 text-sm font-medium">
@@ -372,7 +371,7 @@ export function SettingsPage() {
         <Card className="lg:col-span-2">
           <h3 className="mb-2 text-sm font-medium">Backup</h3>
           <p className="mb-4 text-sm text-muted">
-            Products, sales, and customers stay on this device. Export a JSON backup and keep a copy off the phone.
+            Products, sales, and customers stay on this device. Export a JSON backup and keep a copy off the phone. Staff PINs are never written into backups.
           </p>
           <div className="flex flex-wrap gap-2">
             {can(role, "settings.backup") ? (
