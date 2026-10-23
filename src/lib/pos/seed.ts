@@ -1,6 +1,6 @@
 import { monogram } from "./image";
 import { businessDate } from "./money";
-import type { PosDb } from "./types";
+import type { BranchStock, PosDb } from "./types";
 
 const GROCERY = "#24382f";
 const DRINKS = "#1d3140";
@@ -12,9 +12,31 @@ function daysAgoIso(days: number): string {
   return new Date(Date.UTC(y!, (m ?? 1) - 1, (d ?? 1) - days, 7, 0, 0)).toISOString();
 }
 
+/** Demo stock is held only at Main Store (branch 1). Other branches start empty. */
+const MAIN_STOCK: BranchStock[] = [
+  { product_id: 1, branch_id: 1, stock: 20, min_stock: 5 },
+  { product_id: 2, branch_id: 1, stock: 30, min_stock: 8 },
+  { product_id: 3, branch_id: 1, stock: 15, min_stock: 5 },
+  { product_id: 4, branch_id: 1, stock: 12, min_stock: 4 },
+  { product_id: 5, branch_id: 1, stock: 25, min_stock: 6 },
+  { product_id: 6, branch_id: 1, stock: 10, min_stock: 3 },
+  { product_id: 7, branch_id: 1, stock: 8, min_stock: 3 },
+  { product_id: 8, branch_id: 1, stock: 16, min_stock: 4 },
+  { product_id: 9, branch_id: 1, stock: 18, min_stock: 5 },
+  { product_id: 10, branch_id: 1, stock: 40, min_stock: 10 },
+  { product_id: 11, branch_id: 1, stock: 14, min_stock: 4 },
+  { product_id: 12, branch_id: 1, stock: 22, min_stock: 6 },
+  { product_id: 13, branch_id: 1, stock: 18, min_stock: 5 },
+  { product_id: 14, branch_id: 1, stock: 4, min_stock: 5 },
+  // Gulberg has a small independent stock for demo isolation tests
+  { product_id: 4, branch_id: 2, stock: 6, min_stock: 2 },
+  { product_id: 12, branch_id: 2, stock: 10, min_stock: 3 },
+  { product_id: 13, branch_id: 2, stock: 8, min_stock: 2 },
+];
+
 /** Demo amounts are integer minor units. PKR uses 2 (250.00 rupees = 25000). */
 export const SEED: PosDb = {
-  version: 7,
+  version: 8,
   users: [
     { id: 1, name: "Owner", role: "admin", pin: "1234" },
     { id: 2, name: "Floor manager", role: "manager", pin: "2468" },
@@ -32,26 +54,34 @@ export const SEED: PosDb = {
     { id: 3, name: "Drinks" },
   ],
   products: [
-    { id: 1, name: "Mango 1kg", barcode: "890100000001", category_id: 2, cost: 18000, selling: 25000, stock: 20, min_stock: 5, image: monogram("Mango", GROCERY) },
-    { id: 2, name: "Milk 1L", barcode: "890100000002", category_id: 2, cost: 15000, selling: 19000, stock: 30, min_stock: 8, image: monogram("Milk", GROCERY) },
-    { id: 3, name: "Bread", barcode: "890100000003", category_id: 2, cost: 9000, selling: 12000, stock: 15, min_stock: 5, image: monogram("Bread", GROCERY) },
-    { id: 4, name: "Eggs 12pc", barcode: "890100000004", category_id: 2, cost: 24000, selling: 30000, stock: 12, min_stock: 4, image: monogram("Eggs", GROCERY) },
-    { id: 5, name: "Sugar 1kg", barcode: "890100000006", category_id: 2, cost: 14000, selling: 17000, stock: 25, min_stock: 6, image: monogram("Sugar", GROCERY) },
-    { id: 6, name: "Basmati Rice 5kg", barcode: "890100000007", category_id: 2, cost: 110000, selling: 135000, stock: 10, min_stock: 3, image: monogram("Rice", GROCERY) },
-    { id: 7, name: "Atta 10kg", barcode: "890100000008", category_id: 2, cost: 95000, selling: 115000, stock: 8, min_stock: 3, image: monogram("Atta", GROCERY) },
-    { id: 8, name: "Cooking Oil 1L", barcode: "890100000009", category_id: 2, cost: 48000, selling: 56000, stock: 16, min_stock: 4, image: monogram("Oil", GROCERY) },
-    { id: 9, name: "Cold Drink 1.5L", barcode: "890100000005", category_id: 3, cost: 12000, selling: 17000, stock: 18, min_stock: 5, image: monogram("Cold Drink", DRINKS) },
-    { id: 10, name: "Mineral Water 1.5L", barcode: "890100000010", category_id: 3, cost: 7000, selling: 10000, stock: 40, min_stock: 10, image: monogram("Water", DRINKS) },
-    { id: 11, name: "Orange Juice 1L", barcode: "890100000011", category_id: 3, cost: 18000, selling: 25000, stock: 14, min_stock: 4, image: monogram("Juice", DRINKS) },
-    { id: 12, name: "Bath Soap", barcode: "890100000012", category_id: 1, cost: 8000, selling: 12000, stock: 22, min_stock: 6, image: monogram("Soap", GENERAL) },
-    { id: 13, name: "Toothpaste", barcode: "890100000013", category_id: 1, cost: 16000, selling: 22000, stock: 18, min_stock: 5, image: monogram("Paste", GENERAL) },
-    { id: 14, name: "Detergent 1kg", barcode: "890100000014", category_id: 1, cost: 28000, selling: 36000, stock: 4, min_stock: 5, image: monogram("Wash", GENERAL) },
+    { id: 1, name: "Mango 1kg", barcode: "890100000001", category_id: 2, cost: 18000, selling: 25000, image: monogram("Mango", GROCERY) },
+    { id: 2, name: "Milk 1L", barcode: "890100000002", category_id: 2, cost: 15000, selling: 19000, image: monogram("Milk", GROCERY) },
+    { id: 3, name: "Bread", barcode: "890100000003", category_id: 2, cost: 9000, selling: 12000, image: monogram("Bread", GROCERY) },
+    { id: 4, name: "Eggs 12pc", barcode: "890100000004", category_id: 2, cost: 24000, selling: 30000, image: monogram("Eggs", GROCERY) },
+    { id: 5, name: "Sugar 1kg", barcode: "890100000006", category_id: 2, cost: 14000, selling: 17000, image: monogram("Sugar", GROCERY) },
+    { id: 6, name: "Basmati Rice 5kg", barcode: "890100000007", category_id: 2, cost: 110000, selling: 135000, image: monogram("Rice", GROCERY) },
+    { id: 7, name: "Atta 10kg", barcode: "890100000008", category_id: 2, cost: 95000, selling: 115000, image: monogram("Atta", GROCERY) },
+    { id: 8, name: "Cooking Oil 1L", barcode: "890100000009", category_id: 2, cost: 48000, selling: 56000, image: monogram("Oil", GROCERY) },
+    { id: 9, name: "Cold Drink 1.5L", barcode: "890100000005", category_id: 3, cost: 12000, selling: 17000, image: monogram("Cold Drink", DRINKS) },
+    { id: 10, name: "Mineral Water 1.5L", barcode: "890100000010", category_id: 3, cost: 7000, selling: 10000, image: monogram("Water", DRINKS) },
+    { id: 11, name: "Orange Juice 1L", barcode: "890100000011", category_id: 3, cost: 18000, selling: 25000, image: monogram("Juice", DRINKS) },
+    { id: 12, name: "Bath Soap", barcode: "890100000012", category_id: 1, cost: 8000, selling: 12000, image: monogram("Soap", GENERAL) },
+    { id: 13, name: "Toothpaste", barcode: "890100000013", category_id: 1, cost: 16000, selling: 22000, image: monogram("Paste", GENERAL) },
+    { id: 14, name: "Detergent 1kg", barcode: "890100000014", category_id: 1, cost: 28000, selling: 36000, image: monogram("Wash", GENERAL) },
   ],
+  branch_stocks: MAIN_STOCK,
   customers: [
     { id: 1, name: "Ahmed Khan", phone: "0300-1112233", address: "Gulberg, Lahore", balance: 45000 },
     { id: 2, name: "Fatima Ali", phone: "0321-5556677", address: "DHA Phase 5, Karachi", balance: 0 },
     { id: 3, name: "Bilal Traders", phone: "042-35789012", address: "Hall Road, Lahore", balance: 120000 },
   ],
+  suppliers: [
+    { id: 1, name: "Lahore Wholesale Co.", phone: "042-111-2222", address: "Shah Alam Market", balance: 0 },
+    { id: 2, name: "Punjab Distributors", phone: "0300-9998877", address: "Ferozepur Road", balance: 85000 },
+  ],
+  purchases: [],
+  purchase_payments: [],
+  transfers: [],
   sales: [
     {
       id: 1,
@@ -163,5 +193,9 @@ export const SEED: PosDb = {
     stock_move: 1,
     day_amendment: 1,
     branch: 4,
+    supplier: 3,
+    purchase: 1,
+    purchase_payment: 1,
+    transfer: 1,
   },
 };
