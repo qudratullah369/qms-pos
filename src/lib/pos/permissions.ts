@@ -25,7 +25,19 @@ export type Permission =
   | "settings.pin"
   | "settings.backup"
   | "settings.restore"
-  | "settings.reset";
+  | "settings.reset"
+  | "supplier.view"
+  | "supplier.write"
+  | "purchase.view"
+  | "purchase.write"
+  | "purchase.receive"
+  | "purchase.pay"
+  | "purchase.cancel"
+  | "transfer.view"
+  | "transfer.write"
+  | "transfer.dispatch"
+  | "transfer.receive"
+  | "transfer.cancel";
 
 const ALL: Permission[] = [
   "report.view",
@@ -53,11 +65,30 @@ const ALL: Permission[] = [
   "settings.backup",
   "settings.restore",
   "settings.reset",
+  "supplier.view",
+  "supplier.write",
+  "purchase.view",
+  "purchase.write",
+  "purchase.receive",
+  "purchase.pay",
+  "purchase.cancel",
+  "transfer.view",
+  "transfer.write",
+  "transfer.dispatch",
+  "transfer.receive",
+  "transfer.cancel",
 ];
 
 const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
   admin: ALL,
-  manager: ALL.filter((p) => p !== "settings.pin" && p !== "settings.restore" && p !== "settings.reset" && p !== "catalog.delete" && p !== "sale.amend-day"),
+  manager: ALL.filter(
+    (p) =>
+      p !== "settings.pin" &&
+      p !== "settings.restore" &&
+      p !== "settings.reset" &&
+      p !== "catalog.delete" &&
+      p !== "sale.amend-day",
+  ),
   cashier: [
     "report.view",
     "sale.checkout",
@@ -69,6 +100,9 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "customer.view",
     "customer.write",
     "customer.collect",
+    "supplier.view",
+    "purchase.view",
+    "transfer.view",
   ],
   accountant: [
     "report.view",
@@ -80,6 +114,10 @@ const ROLE_PERMISSIONS: Record<Role, Permission[]> = {
     "customer.view",
     "expense.view",
     "expense.write",
+    "supplier.view",
+    "purchase.view",
+    "purchase.pay",
+    "transfer.view",
   ],
 };
 
@@ -109,6 +147,18 @@ export const PERMISSION_LABELS: { id: Permission; label: string }[] = [
   { id: "settings.restore", label: "Restore a backup" },
   { id: "settings.reset", label: "Erase data and restore the demo" },
   { id: "report.view", label: "Open the dashboard" },
+  { id: "supplier.view", label: "View suppliers" },
+  { id: "supplier.write", label: "Add or edit suppliers" },
+  { id: "purchase.view", label: "View purchases" },
+  { id: "purchase.write", label: "Create or edit purchases" },
+  { id: "purchase.receive", label: "Receive goods against a purchase" },
+  { id: "purchase.pay", label: "Record a payment to a supplier" },
+  { id: "purchase.cancel", label: "Cancel a purchase order" },
+  { id: "transfer.view", label: "View stock transfers" },
+  { id: "transfer.write", label: "Create a stock transfer" },
+  { id: "transfer.dispatch", label: "Dispatch stock from a branch" },
+  { id: "transfer.receive", label: "Receive stock at a branch" },
+  { id: "transfer.cancel", label: "Cancel a stock transfer" },
 ];
 
 const VIEW_PERMISSION: Record<View, Permission> = {
@@ -120,6 +170,9 @@ const VIEW_PERMISSION: Record<View, Permission> = {
   sales: "sale.view",
   expenses: "expense.view",
   settings: "settings.write",
+  purchases: "purchase.view",
+  transfers: "transfer.view",
+  suppliers: "supplier.view",
 };
 
 export function can(role: Role | null | undefined, permission: Permission): boolean {
