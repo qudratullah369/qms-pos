@@ -145,7 +145,7 @@ type PosState = PosDb & {
   exportDb: () => PosDb | null;
   resetDemo: () => string | null;
   dismissReceipt: () => void;
-  saveSupplier: (data: any) => string | null;
+  saveSupplier: (data: { name: string; phone?: string; address?: string; id?: number }) => string | null;
   createPurchase: (...args: any[]) => string | null;
   receivePurchase: (...args: any[]) => string | null;
   payPurchase: (...args: any[]) => string | null;
@@ -378,8 +378,9 @@ export const usePosStore = create<PosState>()(
         const denied = guard(get().session?.role, "catalog.write"); if (denied) return denied;
         const trimmed = name.trim(); if (!trimmed) return "Category name is required";
         const state = get();
-        if (id) set({ categories: state.categories.map((c) => (c.id === id ? { ...c, name: trimmed } : c)) });
-        else {
+        if (id) {
+          set({ categories: state.categories.map((c) => (c.id === id ? { ...c, name: trimmed } : c)) });
+        } else {
           const nextId = state.next.category;
           set({ categories: [...state.categories, { id: nextId, name: trimmed }], next: { ...state.next, category: nextId + 1 } });
         }
@@ -389,8 +390,9 @@ export const usePosStore = create<PosState>()(
         const denied = guard(get().session?.role, "customer.write"); if (denied) return denied;
         const name = data.name.trim(); if (!name) return "Customer name is required";
         const state = get();
-        if (id) set({ customers: state.customers.map((c) => c.id === id ? { ...c, name, phone: data.phone.trim(), address: data.address.trim() } : c) });
-        else {
+        if (id) {
+          set({ customers: state.customers.map((c) => (c.id === id ? { ...c, name, phone: data.phone.trim(), address: data.address.trim() } : c)) });
+        } else {
           const nextId = state.next.customer;
           set({ customers: [...state.customers, { id: nextId, name, phone: data.phone.trim(), address: data.address.trim(), balance: 0 }], next: { ...state.next, customer: nextId + 1 } });
         }
@@ -401,40 +403,44 @@ export const usePosStore = create<PosState>()(
         const state = get();
         const customer = state.customers.find((c) => c.id === customerId);
         if (!customer) return "Customer not found";
-        const paid = Math.round(amount) || 0;
-        if (paid <= 0 || paid > customer.balance) return "Invalid amount";
-        set({ customers: state.customers.map((c) => c.id === customerId ? { ...c, balance: c.balance - paid } : c) });
+        const amt = Math.round(amount);
+        if (amt <= 0) return "Amount must be positive";
+        if (amt > customer.balance) return "Amount exceeds balance";
+        set({ customers: state.customers.map((c) => (c.id === customerId ? { ...c, balance: c.balance - amt } : c)) });
         return null;
       },
       saveExpense: (category, description, amount, affectsCash) => {
         const denied = guard(get().session?.role, "expense.write"); if (denied) return denied;
         const state = get();
-        const amt = Math.round(amount) || 0;
-        if (amt <= 0) return "Enter a valid amount";
         const id = state.next.expense;
-        set({ expenses: [...state.expenses, { id, branch_id: state.currentBranchId, created_at: new Date().toISOString(), category: category.trim(), description: description.trim(), amount: amt, affects_cash: Boolean(affectsCash) }], next: { ...state.next, expense: id + 1 } });
+        set({
+          expenses: [...state.expenses, { id, branch_id: state.currentBranchId, created_at: new Date().toISOString(), category: category.trim() || "Other", description: description.trim(), amount: Math.round(amount), affects_cash: Boolean(affectsCash) }],
+          next: { ...state.next, expense: id + 1 },
+        });
         return null;
       },
       closeDay: (date, cashCounted, notes) => {
         const denied = guard(get().session?.role, "sale.close-day"); if (denied) return denied;
         const state = get();
-        if (dayClosed(state, date, state.currentBranchId)) return "This day is already closed";
-        const branchId = state.currentBranchId;
-        const daySales = state.sales.filter((s) => s.branch_id === branchId && businessDate(new Date(s.created_at), state.settings.timeZone) === date);
-        const dayExpenses = state.expenses.filter((e) => e.branch_id === branchId && businessDate(new Date(e.created_at), state.settings.timeZone) === date);
-        const expected = expectedDrawer(daySales, dayExpenses);
-        const counted = Math.round(cashCounted) || 0;
+        if (dayClosed(state, date, state.currentBranchId)) return "This business day is already closed";
+        const sales = state.sales.filter((s) => s.branch_id === state.currentBranchId && s.created_at.startsWith(date));
+        const expenses = state.expenses.filter((e) => e.branch_id === state.currentBranchId && e.created_at.startsWith(date));
+        const salesTotal = sales.reduce((a, s) => a + s.total, 0);
+        const cashSales = sales.filter((s) => s.tender_method === "Cash").reduce((a, s) => a + s.drawer_cash, 0);
+        const cardSales = sales.filter((s) => s.tender_method === "Card").reduce((a, s) => a + s.total, 0);
+        const digitalSales = sales.filter((s) => s.tender_method === "JazzCash" || s.tender_method === "EasyPaisa").reduce((a, s) => a + s.total, 0);
+        const creditSales = sales.filter((s) => s.payment === "Credit").reduce((a, s) => a + s.balance_due, 0);
+        const expensesTotal = expenses.reduce((a, e) => a + e.amount, 0);
+        const cashExpenses = expenses.filter((e) => e.affects_cash).reduce((a, e) => a + e.amount, 0);
+        const margin = marginAfterExpenses(sales, expenses);
+        const expected = expectedDrawer(sales, expenses);
         const id = state.next.end_of_day;
         set({
           end_of_days: [...state.end_of_days, {
-            id, branch_id: branchId, date, closed_at: new Date().toISOString(), closed_by: state.session!.userId,
-            sales_total: daySales.reduce((a, s) => a + s.total, 0),
-            cash_sales: daySales.reduce((a, s) => a + (s.drawer_cash || 0), 0),
-            card_sales: 0, digital_sales: 0, credit_sales: daySales.reduce((a, s) => a + (s.balance_due || 0), 0),
-            expenses_total: dayExpenses.reduce((a, e) => a + e.amount, 0),
-            cash_expenses: dayExpenses.reduce((a, e) => a + (e.affects_cash ? e.amount : 0), 0),
-            margin_after_expenses: marginAfterExpenses(daySales, dayExpenses),
-            bills: daySales.length, cash_counted: counted, cash_variance: counted - expected, notes: notes.trim(),
+            id, branch_id: state.currentBranchId, date, closed_at: new Date().toISOString(), closed_by: state.session!.userId,
+            sales_total: salesTotal, cash_sales: cashSales, card_sales: cardSales, digital_sales: digitalSales, credit_sales: creditSales,
+            expenses_total: expensesTotal, cash_expenses: cashExpenses, margin_after_expenses: margin, bills: sales.length,
+            cash_counted: Math.round(cashCounted), cash_variance: Math.round(cashCounted) - expected, notes: notes.trim(),
           }],
           next: { ...state.next, end_of_day: id + 1 },
         });
@@ -443,57 +449,88 @@ export const usePosStore = create<PosState>()(
       amendDay: (date, cashCounted, notes) => {
         const denied = guard(get().session?.role, "sale.amend-day"); if (denied) return denied;
         const state = get();
-        const original = state.end_of_days.find((e) => e.date === date && e.branch_id === state.currentBranchId);
-        if (!original) return "Day is not closed";
+        const eod = state.end_of_days.find((e) => e.date === date && e.branch_id === state.currentBranchId);
+        if (!eod) return "No closed day found for this date";
         const id = state.next.day_amendment;
-        set({ day_amendments: [...state.day_amendments, { id, branch_id: state.currentBranchId, end_of_day_id: original.id, date, amended_at: new Date().toISOString(), amended_by: state.session!.userId, cash_counted: Math.round(cashCounted) || 0, notes: notes.trim() }], next: { ...state.next, day_amendment: id + 1 } });
+        set({
+          day_amendments: [...state.day_amendments, {
+            id, branch_id: state.currentBranchId, end_of_day_id: eod.id, date, amended_at: new Date().toISOString(),
+            amended_by: state.session!.userId, cash_counted: Math.round(cashCounted), notes: notes.trim(),
+          }],
+          end_of_days: state.end_of_days.map((e) => e.id === eod.id ? { ...e, cash_counted: Math.round(cashCounted), cash_variance: Math.round(cashCounted) - (e.cash_counted - e.cash_variance) } : e),
+          next: { ...state.next, day_amendment: id + 1 },
+        });
         return null;
       },
-      saveSettings: (s) => { const denied = guard(get().session?.role, "settings.write"); if (denied) return denied; set({ settings: taxDefaults(s) }); return null; },
-      changePin: (userId, pin) => {
-        const denied = guard(get().session?.role, "settings.pin"); if (denied) return denied;
-        if (!/^\d{4,8}$/.test(pin.trim())) return "PIN must be 4–8 digits";
-        const salt = randomSalt();
-        set({ users: get().users.map((u) => u.id === userId ? { id: u.id, name: u.name, role: u.role, pinHash: syncHash(pin.trim(), salt), pinSalt: salt } : u) });
+      saveSettings: (s) => {
+        const denied = guard(get().session?.role, "settings.write"); if (denied) return denied;
+        set({ settings: taxDefaults(s) });
         return null;
+      },
+      changePin: async (userId, pin) => {
+        const denied = guard(get().session?.role, "settings.pin"); if (denied) return denied;
+        const trimmed = pin.trim();
+        if (trimmed.length < 4) return "PIN must be at least 4 characters";
+        const state = get();
+        const user = state.users.find((u) => u.id === userId);
+        if (!user) return "User not found";
+        const salt = randomSalt();
+        const pinHash = await hashPin(trimmed, salt);
+        set({ users: state.users.map((u) => u.id === userId ? { id: u.id, name: u.name, role: u.role, pinHash, pinSalt: salt } : u) });
+        return null;
+      },
+      importDb: (raw) => {
+        const denied = guard(get().session?.role, "settings.restore"); if (denied) return denied;
+        try {
+          const db = withTax(raw as any);
+          set({ ...db, session: get().session, currentBranchId: get().currentBranchId, ...emptyTill() });
+          return null;
+        } catch {
+          return "Invalid backup data";
+        }
       },
       exportDb: () => {
         const denied = guard(get().session?.role, "settings.backup"); if (denied) return null;
         const state = get();
-        return {
-          version: state.version,
-          users: state.users.map(({ id, name, role }) => ({ id, name, role })),
-          branches: state.branches, categories: state.categories, products: state.products,
-          branch_stocks: state.branch_stocks || [], customers: state.customers, sales: state.sales,
-          expenses: state.expenses, end_of_days: state.end_of_days, day_amendments: state.day_amendments,
-          stock_moves: state.stock_moves, suppliers: state.suppliers || [], purchases: state.purchases || [],
-          purchase_payments: state.purchase_payments || [], transfers: state.transfers || [],
-          settings: state.settings, held_sales: state.held_sales, next: ensureNextIds(state.next),
-        };
-      },
-      importDb: (raw) => {
-        const denied = guard(get().session?.role, "settings.restore"); if (denied) return denied;
-        if (!raw || typeof raw !== "object") return "Invalid backup file";
-        try {
-          const migrated = migrateLegacyPos(raw, num((raw as any).version) || 0);
-          const currentUsers = get().users;
-          set({ ...migrated, users: currentUsers.map((u) => ({ id: u.id, name: u.name, role: u.role, pinHash: u.pinHash, pinSalt: u.pinSalt })), session: get().session, currentBranchId: get().currentBranchId, ...emptyCart(), lastSale: null, failedLogins: 0 });
-          return null;
-        } catch { return "Invalid backup file"; }
+        const { session, currentBranchId, view, cart, customerId, payment, tenderMethod, discount, paid, lastSale, failedLogins, ...db } = state;
+        return structuredClone(db) as PosDb;
       },
       resetDemo: () => {
         const denied = guard(get().session?.role, "settings.reset"); if (denied) return denied;
-        const seed = cloneSeed();
-        const finalUsers: User[] = seed.users.map((u) => {
-          const salt = randomSalt();
-          return { id: u.id, name: u.name, role: u.role, pinHash: syncHash((u.pin || "0000").trim(), salt), pinSalt: salt };
-        });
-        set({ ...seed, users: finalUsers, session: get().session, currentBranchId: 1, ...emptyTill(), tenderMethod: "Cash", failedLogins: 0 });
+        set({ ...cloneSeed(), session: null, currentBranchId: 1, ...emptyTill(), failedLogins: 0 });
         return null;
       },
       dismissReceipt: () => set({ lastSale: null }),
 
-      saveSupplier: () => "Coming in next commit",
+      saveSupplier: (data) => {
+        const denied = guard(get().session?.role, "supplier.write");
+        if (denied) return denied;
+        const name = (data.name || "").trim();
+        if (!name) return "Supplier name is required";
+        const state = get();
+        const phone = (data.phone || "").trim();
+        const address = (data.address || "").trim();
+        if (data.id) {
+          const existing = state.suppliers.find((s) => s.id === data.id);
+          if (!existing) return "Supplier not found";
+          // Balance is never edited here — only via purchase/payment flows
+          set({
+            suppliers: state.suppliers.map((s) =>
+              s.id === data.id ? { ...s, name, phone, address } : s
+            ),
+          });
+        } else {
+          const id = state.next.supplier;
+          set({
+            suppliers: [
+              ...state.suppliers,
+              { id, name, phone, address, balance: 0 },
+            ],
+            next: { ...state.next, supplier: id + 1 },
+          });
+        }
+        return null;
+      },
       createPurchase: () => "Coming in next commit",
       receivePurchase: () => "Coming in next commit",
       payPurchase: () => "Coming in next commit",
@@ -507,13 +544,12 @@ export const usePosStore = create<PosState>()(
       name: KEY,
       version: DATA_VERSION,
       storage: createJSONStorage(() => localStorage),
-      skipHydration: true,
       partialize: (s) => ({
         version: s.version, users: s.users, branches: s.branches, categories: s.categories, products: s.products,
         branch_stocks: s.branch_stocks, customers: s.customers, sales: s.sales, expenses: s.expenses,
         end_of_days: s.end_of_days, day_amendments: s.day_amendments, stock_moves: s.stock_moves,
         suppliers: s.suppliers, purchases: s.purchases, purchase_payments: s.purchase_payments, transfers: s.transfers,
-        settings: s.settings, next: s.next, session: s.session, currentBranchId: s.currentBranchId, view: s.view,
+        settings: s.settings, held_sales: s.held_sales, next: s.next, session: s.session, currentBranchId: s.currentBranchId, view: s.view,
         cart: s.cart, customerId: s.customerId, payment: s.payment, tenderMethod: s.tenderMethod,
         discount: s.discount, paid: s.paid, held_sales: s.held_sales, failedLogins: s.failedLogins,
       }),
