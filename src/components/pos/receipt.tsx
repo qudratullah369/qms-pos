@@ -10,19 +10,31 @@ export function ReceiptOverlay() {
   const { money, when } = useFormat();
   if (!sale) return null;
 
+  function handlePrint() {
+    // Ensure the browser has a moment to paint the receipt before print dialog
+    requestAnimationFrame(() => {
+      window.print();
+    });
+  }
+
   return (
-    <div className="fixed inset-0 z-50 grid place-items-center bg-bg/80 p-4">
-      <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-5 shadow-panel">
-        <div className="mb-3 flex items-start justify-between">
+    <div className="fixed inset-0 z-50 grid place-items-center bg-bg/80 p-4 print:static print:bg-white print:p-0">
+      <div className="w-full max-w-sm rounded-xl border border-border bg-surface p-5 shadow-panel print:max-w-none print:rounded-none print:border-0 print:bg-white print:p-0 print:shadow-none">
+        <div className="mb-3 flex items-start justify-between print:hidden">
           <h2 className="font-display text-xl">Receipt</h2>
           <button type="button" onClick={dismiss} className="rounded-lg p-2 hover:bg-secondary">
             <X className="size-4" />
           </button>
         </div>
-        <div id="receipt" className="rounded-lg bg-primary p-4 text-primary-foreground">
+
+        {/* Only this block is printed */}
+        <div
+          id="receipt"
+          className="rounded-lg bg-primary p-4 text-primary-foreground print:bg-white print:p-0 print:text-black"
+        >
           <div className="text-center">
             <h3 className="font-display text-xl">{settings.storeName}</h3>
-            <p className="text-xs opacity-80">
+            <p className="text-xs opacity-80 print:opacity-100">
               {settings.phone}
               {settings.phone && settings.address ? " · " : ""}
               {settings.address}
@@ -33,7 +45,7 @@ export function ReceiptOverlay() {
           <p className="mt-3 text-sm">Customer: {sale.customer_name}</p>
           <table className="mt-2 w-full text-sm">
             <thead>
-              <tr className="text-left text-xs opacity-70">
+              <tr className="text-left text-xs opacity-70 print:opacity-100">
                 <th className="py-1">Item</th>
                 <th>Qty</th>
                 <th className="text-right">Total</th>
@@ -49,7 +61,7 @@ export function ReceiptOverlay() {
               ))}
             </tbody>
           </table>
-          <div className="mt-3 border-t border-primary-foreground/20 pt-2 text-sm">
+          <div className="mt-3 border-t border-primary-foreground/20 pt-2 text-sm print:border-black/20">
             <p>Subtotal: {money(sale.subtotal)}</p>
             <p>Discount: {money(sale.discount)}</p>
             {sale.tax > 0 ? (
@@ -66,11 +78,12 @@ export function ReceiptOverlay() {
           </div>
           <p className="mt-3 text-center text-xs">Thank you</p>
         </div>
-        <div className="mt-4 flex gap-2">
+
+        <div className="mt-4 flex gap-2 print:hidden">
           <Button variant="secondary" className="flex-1" onClick={dismiss}>
             Done
           </Button>
-          <Button className="flex-1" onClick={() => window.print()}>
+          <Button className="flex-1" onClick={handlePrint}>
             <Printer className="size-4" />
             Print
           </Button>
