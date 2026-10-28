@@ -14,6 +14,8 @@ export function DashboardPage() {
   const customers = usePosStore((s) => s.customers);
   const sales = usePosStore((s) => s.sales);
   const setView = usePosStore((s) => s.setView);
+  const stockAt = usePosStore((s) => s.stockAt);
+  const minStockAt = usePosStore((s) => s.minStockAt);
   const { money, when, today, settings } = useFormat();
   const seeMargin = can(role, "sale.profit");
   const canSell = can(role, "sale.checkout");
@@ -23,7 +25,10 @@ export function DashboardPage() {
   const todayRows = sales.filter((s) => onDay(s.created_at, todayKey));
   const todaySales = todayRows.reduce((a, s) => a + s.total, 0);
   const todayMargin = todayRows.reduce((a, s) => a + s.gross_margin, 0);
-  const low = products.filter((p) => p.stock <= p.min_stock);
+  const low = products.filter((p) => {
+    const qty = stockAt(p.id);
+    return qty <= minStockAt(p.id);
+  });
   const recent = [...sales].reverse().slice(0, 8);
 
   const last7 = Array.from({ length: 7 }).map((_, i) => {
@@ -93,14 +98,17 @@ export function DashboardPage() {
             <p className="text-sm text-muted">All stock levels are healthy.</p>
           ) : (
             <ul className="space-y-2">
-              {low.map((p) => (
-                <li key={p.id} className="flex items-center justify-between text-sm">
-                  <span>{p.name}</span>
-                  <span className={`tabular font-medium ${p.stock === 0 ? "text-danger" : "text-warn"}`}>
-                    {p.stock}
-                  </span>
-                </li>
-              ))}
+              {low.map((p) => {
+                const qty = stockAt(p.id);
+                return (
+                  <li key={p.id} className="flex items-center justify-between text-sm">
+                    <span>{p.name}</span>
+                    <span className={`tabular font-medium ${qty === 0 ? "text-danger" : "text-warn"}`}>
+                      {qty}
+                    </span>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </Card>
