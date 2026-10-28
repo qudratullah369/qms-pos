@@ -16,7 +16,7 @@ import { usePosStore } from "@/lib/pos/store";
 import type { Product } from "@/lib/pos/types";
 import { cn } from "@/lib/utils";
 
-const empty: Omit<Product, "id"> = {
+const empty: Omit<Product, "id"> & { stock?: number; min_stock?: number } = {
   name: "",
   barcode: "",
   category_id: 0,
@@ -35,6 +35,8 @@ export function InventoryPage() {
   const deleteProduct = usePosStore((s) => s.deleteProduct);
   const adjustStock = usePosStore((s) => s.adjustStock);
   const importProductsCsv = usePosStore((s) => s.importProductsCsv);
+  const stockAt = usePosStore((s) => s.stockAt);
+  const minStockAt = usePosStore((s) => s.minStockAt);
   const { money, exponent } = useFormat();
   const canWrite = can(role, "catalog.write");
   const canImport = can(role, "catalog.import");
@@ -43,7 +45,7 @@ export function InventoryPage() {
   const canCost = can(role, "sale.profit");
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState("all");
-  const [editing, setEditing] = useState<(Omit<Product, "id"> & { id?: number }) | null>(null);
+  const [editing, setEditing] = useState<(Omit<Product, "id"> & { id?: number; stock?: number; min_stock?: number }) | null>(null);
   const [busy, setBusy] = useState(false);
   const [page, setPage] = useState(1);
   const [adjusting, setAdjusting] = useState<Product | null>(null);
@@ -56,10 +58,17 @@ export function InventoryPage() {
     let list = products.filter(
       (p) => !query || p.name.toLowerCase().includes(query) || (p.barcode || "").includes(query),
     );
-    if (filter === "low") list = list.filter((p) => p.stock > 0 && p.stock <= p.min_stock);
-    if (filter === "out") list = list.filter((p) => p.stock <= 0);
+    if (filter === "low") {
+      list = list.filter((p) => {
+        const qty = stockAt(p.id);
+        return qty > 0 && qty <= minStockAt(p.id);
+      });
+    }
+    if (filter === "out") {
+      list = list.filter((p) => stockAt(p.id) <= 0);
+    }
     return list;
-  }, [products, q, filter]);
+  }, [products, q, filter, stockAt, minStockAt]);
 
   const pageCount = Math.max(1, Math.ceil(rows.length / pageSize));
   const currentPage = Math.min(page, pageCount);
@@ -75,6 +84,8 @@ export function InventoryPage() {
       ...product,
       cost: fromMinor(product.cost, exponent),
       selling: fromMinor(product.selling, exponent),
+      stock: stockAt(product.id),
+      min_stock: minStockAt(product.id),
     });
   }
 
@@ -155,65 +166,69 @@ export function InventoryPage() {
               </tr>
             </thead>
             <tbody>
-              {visibleRows.map((p) => (
-                <tr key={p.id} className="border-t border-border">
-                  <td className="py-2">
-                    <div className="flex items-center gap-2">
-                      {p.image ? (
-                        <img src={p.image} alt="" className="size-9 rounded-md object-cover" />
-                      ) : null}
-                      <span className="font-medium">{p.name}</span>
-                    </div>
-                  </td>
-                  <td className="tabular">{canCost ? money(p.cost) : "—"}</td>
-                  <td className="tabular">{money(p.selling)}</td>
-                  <td
-                    className={cn(
-                      "tabular",
-                      p.stock === 0 ? "text-danger" : p.stock <= p.min_stock ? "text-warn" : "",
-                    )}
-                  >
-                    {p.stock}
-                  </td>
-                  <td className="font-mono text-xs text-muted">{p.barcode || "—"}</td>
-                  <td className="text-right">
-                    {canStock || canWrite || canDelete ? (
-                      <div className="flex justify-end gap-1">
-                        {canStock ? (
-                        <Button variant="ghost" size="icon" className="size-9" onClick={() => { setAdjusting(p); setAdjustment(""); setReason(""); }}>
-                          <SlidersHorizontal className="size-3.5" />
-                        </Button>
+              {visibleRows.map((p) => {
+                const qty = stockAt(p.id);
+                const min = minStockAt(p.id);
+                return (
+                  <tr key={p.id} className="border-t border-border">
+                    <td className="py-2">
+                      <div className="flex items-center gap-2">
+                        {p.image ? (
+                          <img src={p.image} alt="" className="size-9 rounded-md object-cover" />
                         ) : null}
-                        {canWrite ? (
-                        <Button variant="ghost" size="icon" className="size-9" onClick={() => openEdit(p)}>
-                          <Pencil className="size-3.5" />
-                        </Button>
-                        ) : null}
-                        {canDelete ? (
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="size-9"
-                          onClick={() => {
-                            if (!confirm(`Remove ${p.name}? Sales history keeps the item name.`)) return;
-                            const err = deleteProduct(p.id);
-                            if (err) toast.error(err);
-                            else toast.success("Product removed");
-                          }}
-                        >
-                          <Trash2 className="size-3.5" />
-                        </Button>
-                        ) : null}
+                        <span className="font-medium">{p.name}</span>
                       </div>
-                    ) : null}
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="tabular">{canCost ? money(p.cost) : "\u2014"}</td>
+                    <td className="tabular">{money(p.selling)}</td>
+                    <td
+                      className={cn(
+                        "tabular",
+                        qty === 0 ? "text-danger" : qty <= min ? "text-warn" : "",
+                      )}
+                    >
+                      {qty}
+                    </td>
+                    <td className="font-mono text-xs text-muted">{p.barcode || "\u2014"}</td>
+                    <td className="text-right">
+                      {canStock || canWrite || canDelete ? (
+                        <div className="flex justify-end gap-1">
+                          {canStock ? (
+                          <Button variant="ghost" size="icon" className="size-9" onClick={() => { setAdjusting(p); setAdjustment(""); setReason(""); }}>
+                            <SlidersHorizontal className="size-3.5" />
+                          </Button>
+                          ) : null}
+                          {canWrite ? (
+                          <Button variant="ghost" size="icon" className="size-9" onClick={() => openEdit(p)}>
+                            <Pencil className="size-3.5" />
+                          </Button>
+                          ) : null}
+                          {canDelete ? (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="size-9"
+                            onClick={() => {
+                              if (!confirm(`Remove ${p.name}? Sales history keeps the item name.`)) return;
+                              const err = deleteProduct(p.id);
+                              if (err) toast.error(err);
+                              else toast.success("Product removed");
+                            }}
+                          >
+                            <Trash2 className="size-3.5" />
+                          </Button>
+                          ) : null}
+                        </div>
+                      ) : null}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
         <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-border pt-3 text-xs text-muted">
-          <span>{rows.length} matching products · capacity 10,000</span>
+          <span>{rows.length} matching products \u00b7 capacity 10,000</span>
           <div className="flex items-center gap-2">
             <Button variant="outline" size="sm" disabled={currentPage <= 1} onClick={() => setPage((p) => Math.max(1, p - 1))}>
               <ChevronLeft className="size-4" /> Previous
@@ -230,7 +245,7 @@ export function InventoryPage() {
         <DialogContent title="Adjust stock">
           {adjusting ? (
             <div className="space-y-3">
-              <p className="text-sm text-muted">{adjusting.name} · Current stock: <b>{adjusting.stock}</b></p>
+              <p className="text-sm text-muted">{adjusting.name} \u00b7 Current stock: <b>{stockAt(adjusting.id)}</b></p>
               <div><Label htmlFor="stock-adjust">Quantity change</Label><Input id="stock-adjust" type="number" inputMode="numeric" value={adjustment} onChange={(e) => setAdjustment(e.target.value)} placeholder="+10 or -3" /></div>
               <div><Label htmlFor="stock-reason">Reason</Label><Input id="stock-reason" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Received, damaged, count correction" /></div>
               <p className="text-xs text-subtle">Use a positive number to add stock or a negative number to remove stock. The reason is kept on this device.</p>
@@ -295,7 +310,7 @@ export function InventoryPage() {
                   <Input
                     id="pstock"
                     type="number"
-                    value={editing.stock}
+                    value={editing.stock ?? 0}
                     onChange={(e) => setEditing({ ...editing, stock: Number(e.target.value) })}
                   />
                 </div>
@@ -304,7 +319,7 @@ export function InventoryPage() {
                   <Input
                     id="pmin"
                     type="number"
-                    value={editing.min_stock}
+                    value={editing.min_stock ?? 0}
                     onChange={(e) => setEditing({ ...editing, min_stock: Number(e.target.value) })}
                   />
                 </div>
