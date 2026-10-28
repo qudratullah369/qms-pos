@@ -315,8 +315,8 @@ export function SettingsPage() {
                   </div>
                   <Button
                     variant="secondary"
-                    onClick={() => {
-                      const err = changePin(user.id, pins[user.id] ?? "");
+                    onClick={async () => {
+                      const err = await changePin(user.id, pins[user.id] ?? "");
                       if (err) return toast.error(err);
                       setPins({ ...pins, [user.id]: "" });
                       toast.success(`${user.name} PIN updated`);
