@@ -42,6 +42,7 @@ export function BillingPage() {
   const deleteHeldSale = usePosStore((s) => s.deleteHeldSale);
   const heldSales = usePosStore((s) => s.held_sales);
   const settings = usePosStore((s) => s.settings);
+  const stockAt = usePosStore((s) => s.stockAt);
   const { money: fmt, exponent } = useFormat();
 
   const [query, setQuery] = useState("");
@@ -391,27 +392,30 @@ export function BillingPage() {
             {filtered.length === 0 ? (
               <p className="col-span-full py-10 text-center text-sm text-muted">No products found.</p>
             ) : (
-              filtered.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  disabled={p.stock <= 0}
-                  onClick={() => tryAdd(p.id)}
-                  className={cn(
-                    "rounded-lg border border-border bg-elevated p-2.5 text-left transition-colors duration-150 hover:border-accent/50 disabled:opacity-40",
-                  )}
-                >
-                  {p.image ? (
-                    <img src={p.image} alt="" className="mb-2 h-20 w-full rounded-md object-cover" />
-                  ) : null}
-                  <p className="line-clamp-2 text-sm font-medium">{p.name}</p>
-                  <p className="tabular text-sm font-semibold text-accent">{fmt(p.selling)}</p>
-                  <p className="text-xs text-muted">
-                    Stock {p.stock}
-                    {p.barcode ? ` · ${p.barcode}` : ""}
-                  </p>
-                </button>
-              ))
+              filtered.map((p) => {
+                const qty = stockAt(p.id);
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    disabled={qty <= 0}
+                    onClick={() => tryAdd(p.id)}
+                    className={cn(
+                      "rounded-lg border border-border bg-elevated p-2.5 text-left transition-colors duration-150 hover:border-accent/50 disabled:opacity-40",
+                    )}
+                  >
+                    {p.image ? (
+                      <img src={p.image} alt="" className="mb-2 h-20 w-full rounded-md object-cover" />
+                    ) : null}
+                    <p className="line-clamp-2 text-sm font-medium">{p.name}</p>
+                    <p className="tabular text-sm font-semibold text-accent">{fmt(p.selling)}</p>
+                    <p className="text-xs text-muted">
+                      Stock {qty}
+                      {p.barcode ? ` · ${p.barcode}` : ""}
+                    </p>
+                  </button>
+                );
+              })
             )}
           </div>
         </Card>
