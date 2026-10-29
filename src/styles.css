@@ -95,27 +95,32 @@
   }
 }
 
-/* ── Receipt print ─────────────────────────────────────────────────── */
+/* ── Thermal receipt print (80mm) ──────────────────────────────────── */
 @media print {
   @page {
     size: 80mm auto;
-    margin: 4mm;
+    margin: 0;
   }
 
   html,
   body {
-    background: #fff !important;
-    color: #111 !important;
+    width: 80mm !important;
     height: auto !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #fff !important;
+    color: #000 !important;
     overflow: visible !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
   }
 
-  /* Hide everything by default */
+  /* Hide everything */
   body * {
     visibility: hidden !important;
   }
 
-  /* Show only the receipt block and its children */
+  /* Show only receipt */
   #receipt,
   #receipt * {
     visibility: visible !important;
@@ -125,26 +130,62 @@
     position: absolute !important;
     left: 0 !important;
     top: 0 !important;
-    width: 72mm !important;
+    width: 76mm !important;
+    max-width: 76mm !important;
     margin: 0 !important;
-    padding: 2mm !important;
+    padding: 3mm 2mm 4mm 2mm !important;
     background: #fff !important;
-    color: #111 !important;
+    color: #000 !important;
     border: none !important;
     border-radius: 0 !important;
     box-shadow: none !important;
-    font-size: 11px !important;
-    line-height: 1.35 !important;
+    font-family: "Courier New", Courier, monospace !important;
+    font-size: 12px !important;
+    line-height: 1.25 !important;
+  }
+
+  #receipt h3 {
+    font-size: 15px !important;
+    font-weight: 700 !important;
+    margin: 0 0 2px 0 !important;
+    padding: 0 !important;
+    line-height: 1.2 !important;
+  }
+
+  #receipt p {
+    margin: 0 0 1px 0 !important;
+    padding: 0 !important;
   }
 
   #receipt table {
     width: 100% !important;
+    border-collapse: collapse !important;
+    margin: 4px 0 !important;
+    font-size: 11px !important;
   }
 
-  /* Buttons and chrome must never print */
-  .print\\:hidden,
+  #receipt th,
+  #receipt td {
+    padding: 1px 2px !important;
+    vertical-align: top !important;
+  }
+
+  #receipt .receipt-totals p {
+    margin: 0 !important;
+    line-height: 1.3 !important;
+  }
+
+  #receipt .receipt-total-line {
+    font-weight: 700 !important;
+    font-size: 13px !important;
+    margin-top: 2px !important;
+  }
+
+  /* Never print UI chrome */
   button,
-  [role="button"] {
+  [role="button"],
+  .print\\:hidden {
     display: none !important;
+    visibility: hidden !important;
   }
 }
