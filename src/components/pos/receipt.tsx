@@ -11,7 +11,6 @@ export function ReceiptOverlay() {
   if (!sale) return null;
 
   function handlePrint() {
-    // Ensure the browser has a moment to paint the receipt before print dialog
     requestAnimationFrame(() => {
       window.print();
     });
@@ -27,7 +26,6 @@ export function ReceiptOverlay() {
           </button>
         </div>
 
-        {/* Only this block is printed */}
         <div
           id="receipt"
           className="rounded-lg bg-primary p-4 text-primary-foreground print:bg-white print:p-0 print:text-black"
@@ -35,48 +33,50 @@ export function ReceiptOverlay() {
           <div className="text-center">
             <h3 className="font-display text-xl">{settings.storeName}</h3>
             <p className="text-xs opacity-80 print:opacity-100">
-              {settings.phone}
-              {settings.phone && settings.address ? " · " : ""}
-              {settings.address}
+              {[settings.phone, settings.address].filter(Boolean).join(" · ")}
             </p>
-            <p className="mt-2 font-mono text-xs">{sale.bill_id}</p>
+            <p className="mt-1 font-mono text-xs">{sale.bill_id}</p>
             <p className="text-xs">{when(sale.created_at)}</p>
           </div>
-          <p className="mt-3 text-sm">Customer: {sale.customer_name}</p>
-          <table className="mt-2 w-full text-sm">
+
+          <p className="mt-2 text-sm">Customer: {sale.customer_name}</p>
+
+          <table className="mt-1 w-full text-sm">
             <thead>
               <tr className="text-left text-xs opacity-70 print:opacity-100">
-                <th className="py-1">Item</th>
-                <th>Qty</th>
-                <th className="text-right">Total</th>
+                <th className="py-0.5">Item</th>
+                <th className="py-0.5">Qty</th>
+                <th className="py-0.5 text-right">Total</th>
               </tr>
             </thead>
             <tbody>
               {sale.items.map((i, idx) => (
                 <tr key={idx}>
-                  <td className="py-1">{i.name}</td>
-                  <td>{i.qty}</td>
-                  <td className="tabular text-right">{money(Math.round(i.price * i.qty))}</td>
+                  <td className="py-0.5">{i.name}</td>
+                  <td className="py-0.5">{i.qty}</td>
+                  <td className="tabular py-0.5 text-right">{money(Math.round(i.price * i.qty))}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-          <div className="mt-3 border-t border-primary-foreground/20 pt-2 text-sm print:border-black/20">
+
+          <div className="receipt-totals mt-2 border-t border-primary-foreground/20 pt-1 text-sm print:border-black/30">
             <p>Subtotal: {money(sale.subtotal)}</p>
-            <p>Discount: {money(sale.discount)}</p>
+            {sale.discount > 0 ? <p>Discount: {money(sale.discount)}</p> : null}
             {sale.tax > 0 ? (
               <p>
-                {settings.taxName || "Tax"} ({(sale.tax_rate_bps / 100).toFixed(2)}%): {money(sale.tax)}
+                {settings.taxName || "Tax"} ({(sale.tax_rate_bps / 100).toFixed(1)}%): {money(sale.tax)}
               </p>
             ) : null}
-            <p className="font-semibold">Total: {money(sale.total)}</p>
+            <p className="receipt-total-line font-semibold">Total: {money(sale.total)}</p>
             <p>Tendered: {money(sale.paid)}</p>
             <p>Change: {money(sale.change)}</p>
             {sale.balance_due > 0 ? <p>Balance due: {money(sale.balance_due)}</p> : null}
             <p>Payment: {sale.payment}</p>
             {settings.taxRegistration ? <p>Tax ID: {settings.taxRegistration}</p> : null}
           </div>
-          <p className="mt-3 text-center text-xs">Thank you</p>
+
+          <p className="mt-2 text-center text-xs">Thank you</p>
         </div>
 
         <div className="mt-4 flex gap-2 print:hidden">
