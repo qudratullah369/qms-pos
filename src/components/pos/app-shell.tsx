@@ -12,6 +12,9 @@ import {
   Wallet,
   X,
   ChevronDown,
+  Truck,
+  Building2,
+  ClipboardList,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { Badge } from "@/components/ui/badge";
@@ -29,6 +32,9 @@ const NAV: { id: View; label: string; icon: typeof Store }[] = [
   { id: "customers", label: "Customers", icon: Users },
   { id: "sales", label: "Sales", icon: BarChart3 },
   { id: "expenses", label: "Expenses", icon: Wallet },
+  { id: "purchases", label: "Purchases", icon: ClipboardList },
+  { id: "suppliers", label: "Suppliers", icon: Building2 },
+  { id: "transfers", label: "Transfers", icon: Truck },
   { id: "settings", label: "Settings", icon: Settings },
 ];
 
@@ -82,7 +88,6 @@ export function AppShell({ children }: { children: ReactNode }) {
         </div>
 
         <div className="flex items-center gap-2">
-          {/* Branch Switcher */}
           {activeBranches.length > 0 && (
             <div className="relative">
               <button
