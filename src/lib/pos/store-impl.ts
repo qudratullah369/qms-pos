@@ -15,10 +15,16 @@ import {
   type Payment,
   type PosDb,
   type Product,
+  type Purchase,
+  type PurchaseItem,
+  type PurchasePayment,
   type Role,
   type Sale,
   type Settings,
+  type StockTransfer,
+  type Supplier,
   type TenderMethod,
+  type TransferItem,
   type User,
   type View,
 } from "./types";
@@ -147,14 +153,14 @@ type PosState = PosDb & {
   resetDemo: () => string | null;
   dismissReceipt: () => void;
   saveSupplier: (data: { name: string; phone?: string; address?: string; id?: number }) => string | null;
-  createPurchase: (...args: any[]) => string | null;
-  receivePurchase: (...args: any[]) => string | null;
-  payPurchase: (...args: any[]) => string | null;
-  cancelPurchase: (...args: any[]) => string | null;
-  createTransfer: (...args: any[]) => string | null;
-  dispatchTransfer: (...args: any[]) => string | null;
-  receiveTransfer: (...args: any[]) => string | null;
-  cancelTransfer: (...args: any[]) => string | null;
+  createPurchase: (supplierId: number, items: { product_id: number; qty: number; unit_cost: number }[], notes?: string) => string | null;
+  receivePurchase: (purchaseId: number, received: { product_id: number; qty: number }[]) => string | null;
+  payPurchase: (purchaseId: number, amount: number, method: TenderMethod | "Bank", notes?: string) => string | null;
+  cancelPurchase: (purchaseId: number) => string | null;
+  createTransfer: (toBranchId: number, items: { product_id: number; qty: number }[], notes?: string) => string | null;
+  dispatchTransfer: (transferId: number) => string | null;
+  receiveTransfer: (transferId: number, received: { product_id: number; qty: number }[]) => string | null;
+  cancelTransfer: (transferId: number) => string | null;
 };
 
 function emptyCart() {
@@ -450,7 +456,7 @@ export const usePosStore = create<PosState>()(
               product_name: product.name,
               delta,
               stock_after: result.stock_after,
-              reason: reason.trim() || "Adjustment",
+              reason: reason || "Adjustment",
               user_id: state.session!.userId,
               ref_type: "adjustment",
             },
@@ -465,45 +471,57 @@ export const usePosStore = create<PosState>()(
         const name = (data.name || "").trim();
         if (!name) return "Product name is required";
         const state = get();
-        const stock = Math.max(0, Math.round(Number(data.stock) || 0));
-        const min_stock = Math.max(0, Math.round(Number(data.min_stock) || 0));
-        let products = state.products;
-        let stocks = state.branch_stocks || [];
-        let next = state.next;
+        const cost = Math.max(0, Math.round(Number(data.cost) || 0));
+        const selling = Math.max(0, Math.round(Number(data.selling) || 0));
         if (data.id) {
-          if (!products.some((p) => p.id === data.id)) return "Product not found";
-          products = products.map((p) =>
-            p.id === data.id
-              ? {
-                  id: p.id,
-                  name,
-                  barcode: data.barcode || null,
-                  category_id: Number(data.category_id) || 0,
-                  cost: Math.max(0, Math.round(Number(data.cost) || 0)),
-                  selling: Math.max(0, Math.round(Number(data.selling) || 0)),
-                  image: data.image ?? null,
-                }
-              : p,
-          );
-          stocks = setBranchStock(stocks, data.id, state.currentBranchId, { stock, min_stock });
+          const existing = state.products.find((p) => p.id === data.id);
+          if (!existing) return "Product not found";
+          let stocks = state.branch_stocks || [];
+          if (data.stock !== undefined || data.min_stock !== undefined) {
+            stocks = setBranchStock(stocks, data.id, state.currentBranchId, {
+              stock: data.stock,
+              min_stock: data.min_stock,
+            });
+          }
+          set({
+            products: state.products.map((p) =>
+              p.id === data.id
+                ? {
+                    ...p,
+                    name,
+                    barcode: data.barcode?.trim() || null,
+                    category_id: data.category_id || p.category_id,
+                    cost,
+                    selling,
+                    image: data.image ?? p.image,
+                  }
+                : p,
+            ),
+            branch_stocks: stocks,
+          });
         } else {
-          const id = next.product;
-          products = [
-            ...products,
-            {
-              id,
-              name,
-              barcode: data.barcode || null,
-              category_id: Number(data.category_id) || 0,
-              cost: Math.max(0, Math.round(Number(data.cost) || 0)),
-              selling: Math.max(0, Math.round(Number(data.selling) || 0)),
-              image: data.image ?? null,
-            },
-          ];
-          stocks = setBranchStock(stocks, id, state.currentBranchId, { stock, min_stock });
-          next = { ...next, product: id + 1 };
+          const id = state.next.product;
+          const stocks = setBranchStock(state.branch_stocks || [], id, state.currentBranchId, {
+            stock: data.stock ?? 0,
+            min_stock: data.min_stock ?? 5,
+          });
+          set({
+            products: [
+              ...state.products,
+              {
+                id,
+                name,
+                barcode: data.barcode?.trim() || null,
+                category_id: data.category_id || 1,
+                cost,
+                selling,
+                image: data.image ?? null,
+              },
+            ],
+            branch_stocks: stocks,
+            next: { ...state.next, product: id + 1 },
+          });
         }
-        set({ products, branch_stocks: stocks, next });
         return null;
       },
 
@@ -515,39 +533,41 @@ export const usePosStore = create<PosState>()(
         const state = get();
         let products = [...state.products];
         let stocks = state.branch_stocks || [];
-        let next = { ...state.next };
+        let nextId = state.next.product;
         let imported = 0;
         const errors = [...parsed.errors];
         for (const row of parsed.rows) {
-          try {
-            const id = next.product;
+          const existing = products.find((p) => p.barcode && row.barcode && p.barcode === row.barcode);
+          if (existing) {
+            products = products.map((p) =>
+              p.id === existing.id
+                ? { ...p, name: row.name, cost: row.cost, selling: row.selling, category_id: row.category_id || p.category_id }
+                : p,
+            );
+            stocks = setBranchStock(stocks, existing.id, state.currentBranchId, { stock: row.stock, min_stock: row.min_stock });
+          } else {
+            const id = nextId++;
             products.push({
               id,
               name: row.name,
-              barcode: row.barcode,
-              category_id: row.category_id || state.categories[0]?.id || 0,
+              barcode: row.barcode || null,
+              category_id: row.category_id || 1,
               cost: row.cost,
               selling: row.selling,
               image: null,
             });
-            stocks = setBranchStock(stocks, id, state.currentBranchId, {
-              stock: row.stock,
-              min_stock: row.min_stock,
-            });
-            next = { ...next, product: id + 1 };
-            imported++;
-          } catch (e) {
-            errors.push(String(e));
+            stocks = setBranchStock(stocks, id, state.currentBranchId, { stock: row.stock, min_stock: row.min_stock });
           }
+          imported++;
         }
-        set({ products, branch_stocks: stocks, next });
+        set({ products, branch_stocks: stocks, next: { ...state.next, product: nextId } });
         return { imported, errors };
       },
 
       deleteProduct: (id) => {
         const denied = guard(get().session?.role, "catalog.delete"); if (denied) return denied;
         const state = get();
-        if (!state.products.some((p) => p.id === id)) return "Product not found";
+        if (!state.products.find((p) => p.id === id)) return "Product not found";
         set({
           products: state.products.filter((p) => p.id !== id),
           branch_stocks: (state.branch_stocks || []).filter((s) => s.product_id !== id),
@@ -561,13 +581,13 @@ export const usePosStore = create<PosState>()(
         if (!trimmed) return "Category name is required";
         const state = get();
         if (id) {
-          if (!state.categories.some((c) => c.id === id)) return "Category not found";
+          if (!state.categories.find((c) => c.id === id)) return "Category not found";
           set({ categories: state.categories.map((c) => (c.id === id ? { ...c, name: trimmed } : c)) });
         } else {
-          const nid = state.next.category;
+          const newId = state.next.category;
           set({
-            categories: [...state.categories, { id: nid, name: trimmed }],
-            next: { ...state.next, category: nid + 1 },
+            categories: [...state.categories, { id: newId, name: trimmed }],
+            next: { ...state.next, category: newId + 1 },
           });
         }
         return null;
@@ -575,26 +595,21 @@ export const usePosStore = create<PosState>()(
 
       saveCustomer: (data, id) => {
         const denied = guard(get().session?.role, "customer.write"); if (denied) return denied;
-        const name = (data.name || "").trim();
+        const name = data.name.trim();
         if (!name) return "Customer name is required";
         const state = get();
         if (id) {
-          if (!state.customers.some((c) => c.id === id)) return "Customer not found";
+          if (!state.customers.find((c) => c.id === id)) return "Customer not found";
           set({
             customers: state.customers.map((c) =>
-              c.id === id
-                ? { ...c, name, phone: (data.phone || "").trim(), address: (data.address || "").trim() }
-                : c,
+              c.id === id ? { ...c, name, phone: data.phone.trim(), address: data.address.trim() } : c,
             ),
           });
         } else {
-          const nid = state.next.customer;
+          const newId = state.next.customer;
           set({
-            customers: [
-              ...state.customers,
-              { id: nid, name, phone: (data.phone || "").trim(), address: (data.address || "").trim(), balance: 0 },
-            ],
-            next: { ...state.next, customer: nid + 1 },
+            customers: [...state.customers, { id: newId, name, phone: data.phone.trim(), address: data.address.trim(), balance: 0 }],
+            next: { ...state.next, customer: newId + 1 },
           });
         }
         return null;
@@ -605,40 +620,13 @@ export const usePosStore = create<PosState>()(
         const state = get();
         const customer = state.customers.find((c) => c.id === customerId);
         if (!customer) return "Customer not found";
-        const pay = Math.max(0, Math.round(amount) || 0);
-        if (pay <= 0) return "Enter an amount greater than zero";
-        const today = businessDate(new Date(), state.settings.timeZone);
-        if (dayClosed(state, today, state.currentBranchId)) return "This business day is already closed";
-        const id = state.next.sale;
-        const sale: Sale = {
-          id,
-          branch_id: state.currentBranchId,
-          bill_id: billId(id),
-          created_at: new Date().toISOString(),
-          customer_id: customer.id,
-          customer_name: customer.name,
-          net: 0,
-          tax: 0,
-          tax_rate_bps: 0,
-          total: 0,
-          subtotal: 0,
-          discount: 0,
-          paid: pay,
-          change: 0,
-          drawer_cash: pay,
-          balance_due: 0,
-          payment: "Cash",
-          tender_method: "Cash",
-          gross_margin: 0,
-          items: [],
-        };
+        const amt = Math.max(0, Math.round(amount));
+        if (amt <= 0) return "Amount must be positive";
+        if (amt > customer.balance) return "Cannot collect more than the outstanding balance";
         set({
           customers: state.customers.map((c) =>
-            c.id === customerId ? { ...c, balance: Math.max(0, c.balance - pay) } : c,
+            c.id === customerId ? { ...c, balance: c.balance - amt } : c,
           ),
-          sales: [...state.sales, sale],
-          next: { ...state.next, sale: id + 1 },
-          lastSale: sale,
         });
         return null;
       },
@@ -646,10 +634,8 @@ export const usePosStore = create<PosState>()(
       saveExpense: (category, description, amount, affectsCash) => {
         const denied = guard(get().session?.role, "expense.write"); if (denied) return denied;
         const state = get();
-        const today = businessDate(new Date(), state.settings.timeZone);
-        if (dayClosed(state, today, state.currentBranchId)) return "This business day is already closed";
-        const amt = Math.max(0, Math.round(amount) || 0);
-        if (amt <= 0) return "Enter an amount greater than zero";
+        const amt = Math.max(0, Math.round(amount));
+        if (amt <= 0) return "Amount must be positive";
         const id = state.next.expense;
         set({
           expenses: [
@@ -658,8 +644,8 @@ export const usePosStore = create<PosState>()(
               id,
               branch_id: state.currentBranchId,
               created_at: new Date().toISOString(),
-              category: category.trim() || "Other",
-              description: description.trim(),
+              category: category || "Other",
+              description: description.trim() || "",
               amount: amt,
               affects_cash: Boolean(affectsCash),
             },
@@ -670,19 +656,22 @@ export const usePosStore = create<PosState>()(
       },
 
       closeDay: (date, cashCounted, notes) => {
-        const denied = guard(get().session?.role, "day.close"); if (denied) return denied;
+        const denied = guard(get().session?.role, "sale.close-day"); if (denied) return denied;
         const state = get();
-        if (dayClosed(state, date, state.currentBranchId)) return "Day already closed";
-        const daySales = state.sales.filter(
-          (s) => s.branch_id === state.currentBranchId && businessDate(new Date(s.created_at), state.settings.timeZone) === date,
-        );
-        const dayExpenses = state.expenses.filter(
-          (e) => e.branch_id === state.currentBranchId && businessDate(new Date(e.created_at), state.settings.timeZone) === date,
-        );
-        const expected = expectedDrawer(daySales, dayExpenses);
-        const counted = Math.max(0, Math.round(cashCounted) || 0);
+        if (dayClosed(state, date, state.currentBranchId)) return "This day is already closed";
+        const branchSales = state.sales.filter((s) => s.branch_id === state.currentBranchId && s.created_at.startsWith(date));
+        const branchExpenses = state.expenses.filter((e) => e.branch_id === state.currentBranchId && e.created_at.startsWith(date));
+        const sales_total = branchSales.reduce((a, s) => a + s.total, 0);
+        const cash_sales = branchSales.filter((s) => s.tender_method === "Cash").reduce((a, s) => a + s.drawer_cash, 0);
+        const card_sales = branchSales.filter((s) => s.tender_method === "Card").reduce((a, s) => a + s.paid, 0);
+        const digital_sales = branchSales.filter((s) => s.tender_method === "JazzCash" || s.tender_method === "EasyPaisa").reduce((a, s) => a + s.paid, 0);
+        const credit_sales = branchSales.filter((s) => s.payment === "Credit").reduce((a, s) => a + s.balance_due, 0);
+        const expenses_total = branchExpenses.reduce((a, e) => a + e.amount, 0);
+        const cash_expenses = branchExpenses.filter((e) => e.affects_cash).reduce((a, e) => a + e.amount, 0);
+        const margin = marginAfterExpenses(branchSales, branchExpenses);
+        const counted = Math.max(0, Math.round(cashCounted));
+        const expected = expectedDrawer(branchSales, branchExpenses);
         const id = state.next.end_of_day;
-        const summary = marginAfterExpenses(daySales, dayExpenses);
         set({
           end_of_days: [
             ...state.end_of_days,
@@ -692,15 +681,15 @@ export const usePosStore = create<PosState>()(
               date,
               closed_at: new Date().toISOString(),
               closed_by: state.session!.userId,
-              sales_total: summary.sales_total,
-              cash_sales: summary.cash_sales,
-              card_sales: summary.card_sales,
-              digital_sales: summary.digital_sales,
-              credit_sales: summary.credit_sales,
-              expenses_total: summary.expenses_total,
-              cash_expenses: summary.cash_expenses,
-              margin_after_expenses: summary.margin_after_expenses,
-              bills: daySales.length,
+              sales_total,
+              cash_sales,
+              card_sales,
+              digital_sales,
+              credit_sales,
+              expenses_total,
+              cash_expenses,
+              margin_after_expenses: margin,
+              bills: branchSales.length,
               cash_counted: counted,
               cash_variance: counted - expected,
               notes: notes.trim(),
@@ -712,11 +701,11 @@ export const usePosStore = create<PosState>()(
       },
 
       amendDay: (date, cashCounted, notes) => {
-        const denied = guard(get().session?.role, "day.amend"); if (denied) return denied;
+        const denied = guard(get().session?.role, "sale.amend-day"); if (denied) return denied;
         const state = get();
         const eod = state.end_of_days.find((e) => e.date === date && e.branch_id === state.currentBranchId);
-        if (!eod) return "Day is not closed yet";
-        const counted = Math.max(0, Math.round(cashCounted) || 0);
+        if (!eod) return "Day is not closed";
+        const counted = Math.max(0, Math.round(cashCounted));
         const id = state.next.day_amendment;
         set({
           day_amendments: [
@@ -733,9 +722,7 @@ export const usePosStore = create<PosState>()(
             },
           ],
           end_of_days: state.end_of_days.map((e) =>
-            e.id === eod.id
-              ? { ...e, cash_counted: counted, cash_variance: counted - (e.cash_counted - e.cash_variance), notes: notes.trim() || e.notes }
-              : e,
+            e.id === eod.id ? { ...e, cash_counted: counted, cash_variance: counted - (e.cash_counted - e.cash_variance), notes: notes.trim() || e.notes } : e,
           ),
           next: { ...state.next, day_amendment: id + 1 },
         });
@@ -747,57 +734,483 @@ export const usePosStore = create<PosState>()(
         set({ settings: taxDefaults(s) });
         return null;
       },
+
       changePin: async (userId, pin) => {
         const denied = guard(get().session?.role, "settings.pin"); if (denied) return denied;
         const trimmed = pin.trim();
         if (trimmed.length < 4) return "PIN must be at least 4 characters";
         const state = get();
-        const user = state.users.find((u) => u.id === userId);
-        if (!user) return "User not found";
+        if (!state.users.find((u) => u.id === userId)) return "User not found";
         const salt = randomSalt();
         const pinHash = await hashPin(trimmed, salt);
-        set({ users: state.users.map((u) => u.id === userId ? { id: u.id, name: u.name, role: u.role, pinHash, pinSalt: salt } : u) });
+        set({
+          users: state.users.map((u) =>
+            u.id === userId ? { id: u.id, name: u.name, role: u.role, pinHash, pinSalt: salt } : u,
+          ),
+        });
         return null;
       },
+
       importDb: (raw) => {
         const denied = guard(get().session?.role, "settings.restore"); if (denied) return denied;
         try {
-          const db = withTax(raw as any);
-          set({
-            ...db,
-            session: get().session,
-            currentBranchId: get().currentBranchId,
-            ...emptyTill(),
-          });
+          const db = withTax(raw);
+          set({ ...db, session: get().session, currentBranchId: db.branches?.[0]?.id ?? 1, ...emptyTill() });
           return null;
         } catch {
           return "Invalid backup file";
         }
       },
+
       exportDb: () => {
-        const denied = guard(get().session?.role, "settings.backup"); if (denied) return null;
         const state = get();
-        const { session: _s, currentBranchId: _b, view: _v, cart: _c, customerId: _cid, payment: _p, tenderMethod: _t, discount: _d, paid: _paid, lastSale: _ls, failedLogins: _f, stockAt: _sa, minStockAt: _msa, login: _l, logout: _lo, setView: _sv, setCurrentBranch: _scb, saveBranch: _sb, deleteBranch: _db, addToCart: _atc, addByCode: _abc, changeQty: _cq, removeLine: _rl, clearCart: _cc, setCustomerId: _sci, setPayment: _sp, setTenderMethod: _stm, setDiscount: _sd, setPaid: _spd, checkout: _ch, holdSale: _hs, resumeSale: _rs, deleteHeldSale: _dhs, adjustStock: _as, saveProduct: _sp2, importProductsCsv: _ipc, deleteProduct: _dp, saveCategory: _sc, saveCustomer: _scu, receiveCredit: _rc, saveExpense: _se, closeDay: _cd, amendDay: _ad, saveSettings: _ss, changePin: _cp, importDb: _id, exportDb: _ed, resetDemo: _rd, dismissReceipt: _dr, saveSupplier: _ssu, createPurchase: _cpr, receivePurchase: _rp, payPurchase: _pp, cancelPurchase: _cpa, createTransfer: _ct, dispatchTransfer: _dt, receiveTransfer: _rt, cancelTransfer: _ctr, ...db } = state as any;
+        const {
+          session: _s, currentBranchId: _c, view: _v, cart: _ca, customerId: _ci, payment: _p,
+          tenderMethod: _t, discount: _d, paid: _pa, lastSale: _l, failedLogins: _f,
+          stockAt: _sa, minStockAt: _msa, login: _li, logout: _lo, setView: _sv, setCurrentBranch: _scb,
+          saveBranch: _sb, deleteBranch: _db, addToCart: _atc, addByCode: _abc, changeQty: _cq,
+          removeLine: _rl, clearCart: _cc, setCustomerId: _sci, setPayment: _sp, setTenderMethod: _stm,
+          setDiscount: _sd, setPaid: _spd, checkout: _ch, holdSale: _hs, resumeSale: _rs,
+          deleteHeldSale: _dhs, adjustStock: _as, saveProduct: _sp2, importProductsCsv: _ipc,
+          deleteProduct: _dp, saveCategory: _sc, saveCustomer: _scu, receiveCredit: _rc, saveExpense: _se,
+          closeDay: _cd, amendDay: _ad, saveSettings: _ss, changePin: _cp, importDb: _id, exportDb: _ed,
+          resetDemo: _rd, dismissReceipt: _dr, saveSupplier: _ssu, createPurchase: _cpr,
+          receivePurchase: _rp, payPurchase: _pp, cancelPurchase: _cpa, createTransfer: _ct,
+          dispatchTransfer: _dt, receiveTransfer: _rt, cancelTransfer: _ctr, ...db
+        } = state as any;
         return {
           ...db,
           users: (db.users || []).map((u: any) => ({ id: u.id, name: u.name, role: u.role })),
         } as PosDb;
       },
+
       resetDemo: () => {
         const denied = guard(get().session?.role, "settings.reset"); if (denied) return denied;
         set({ ...cloneSeed(), session: get().session, currentBranchId: 1, ...emptyTill(), failedLogins: 0 });
         return null;
       },
+
       dismissReceipt: () => set({ lastSale: null }),
-      saveSupplier: () => "Coming in next commit",
-      createPurchase: () => "Coming in next commit",
-      receivePurchase: () => "Coming in next commit",
-      payPurchase: () => "Coming in next commit",
-      cancelPurchase: () => "Coming in next commit",
-      createTransfer: () => "Coming in next commit",
-      dispatchTransfer: () => "Coming in next commit",
-      receiveTransfer: () => "Coming in next commit",
-      cancelTransfer: () => "Coming in next commit",
+
+      // ── Suppliers ──────────────────────────────────────────────────────
+      saveSupplier: (data) => {
+        const denied = guard(get().session?.role, "supplier.write");
+        if (denied) return denied;
+        const name = (data.name || "").trim();
+        if (!name) return "Supplier name is required";
+        const state = get();
+        if (data.id) {
+          if (!state.suppliers.find((s) => s.id === data.id)) return "Supplier not found";
+          set({
+            suppliers: state.suppliers.map((s) =>
+              s.id === data.id
+                ? { ...s, name, phone: (data.phone || "").trim(), address: (data.address || "").trim() }
+                : s,
+            ),
+          });
+        } else {
+          const id = state.next.supplier;
+          set({
+            suppliers: [
+              ...state.suppliers,
+              { id, name, phone: (data.phone || "").trim(), address: (data.address || "").trim(), balance: 0 },
+            ],
+            next: { ...state.next, supplier: id + 1 },
+          });
+        }
+        return null;
+      },
+
+      // ── Purchases ──────────────────────────────────────────────────────
+      createPurchase: (supplierId, items, notes = "") => {
+        const denied = guard(get().session?.role, "purchase.write");
+        if (denied) return denied;
+        const state = get();
+        const supplier = state.suppliers.find((s) => s.id === supplierId);
+        if (!supplier) return "Supplier not found";
+        if (!items.length) return "Add at least one item";
+        const purchaseItems: PurchaseItem[] = [];
+        let subtotal = 0;
+        for (const it of items) {
+          const product = state.products.find((p) => p.id === it.product_id);
+          if (!product) return `Product #${it.product_id} not found`;
+          const qty = Math.max(0, Math.round(it.qty));
+          const unit_cost = Math.max(0, Math.round(it.unit_cost));
+          if (qty <= 0) return "Quantity must be positive";
+          purchaseItems.push({
+            product_id: product.id,
+            name: product.name,
+            qty_ordered: qty,
+            qty_received: 0,
+            unit_cost,
+          });
+          subtotal += qty * unit_cost;
+        }
+        const id = state.next.purchase;
+        const purchase: Purchase = {
+          id,
+          branch_id: state.currentBranchId,
+          supplier_id: supplier.id,
+          supplier_name: supplier.name,
+          created_at: new Date().toISOString(),
+          received_at: null,
+          status: "ordered",
+          items: purchaseItems,
+          subtotal,
+          discount: 0,
+          tax: 0,
+          total: subtotal,
+          paid: 0,
+          balance_due: subtotal,
+          notes: notes.trim(),
+          created_by: state.session!.userId,
+        };
+        set({
+          purchases: [...state.purchases, purchase],
+          next: { ...state.next, purchase: id + 1 },
+        });
+        return null;
+      },
+
+      receivePurchase: (purchaseId, received) => {
+        const denied = guard(get().session?.role, "purchase.receive");
+        if (denied) return denied;
+        const state = get();
+        const purchase = state.purchases.find((p) => p.id === purchaseId);
+        if (!purchase) return "Purchase not found";
+        if (purchase.status === "cancelled" || purchase.status === "received") {
+          return "Cannot receive on a cancelled or fully received purchase";
+        }
+        if (purchase.branch_id !== state.currentBranchId) {
+          return "Switch to the correct branch to receive this purchase";
+        }
+        let stocks = state.branch_stocks || [];
+        const stockMoves: any[] = [];
+        const newItems = purchase.items.map((item) => {
+          const recv = received.find((r) => r.product_id === item.product_id);
+          if (!recv) return item;
+          const qty = Math.max(0, Math.round(recv.qty));
+          const remaining = item.qty_ordered - item.qty_received;
+          const toReceive = Math.min(qty, remaining);
+          if (toReceive <= 0) return item;
+          const result = applyStockDelta(stocks, item.product_id, state.currentBranchId, toReceive);
+          if ("error" in result) throw new Error(result.error); // should not happen on positive delta
+          stocks = result.stocks;
+          stockMoves.push({
+            id: state.next.stock_move + stockMoves.length,
+            branch_id: state.currentBranchId,
+            created_at: new Date().toISOString(),
+            product_id: item.product_id,
+            product_name: item.name,
+            delta: toReceive,
+            stock_after: result.stock_after,
+            reason: `Purchase #${purchaseId} receive`,
+            user_id: state.session!.userId,
+            ref_type: "purchase" as const,
+            ref_id: purchaseId,
+          });
+          return { ...item, qty_received: item.qty_received + toReceive };
+        });
+        const allReceived = newItems.every((i) => i.qty_received >= i.qty_ordered);
+        const anyReceived = newItems.some((i) => i.qty_received > 0);
+        const status = allReceived ? "received" : anyReceived ? "partial" : purchase.status;
+        set({
+          purchases: state.purchases.map((p) =>
+            p.id === purchaseId
+              ? {
+                  ...p,
+                  items: newItems,
+                  status,
+                  received_at: allReceived ? new Date().toISOString() : p.received_at,
+                }
+              : p,
+          ),
+          branch_stocks: stocks,
+          stock_moves: [...state.stock_moves, ...stockMoves],
+          next: { ...state.next, stock_move: state.next.stock_move + stockMoves.length },
+        });
+        return null;
+      },
+
+      payPurchase: (purchaseId, amount, method, notes = "") => {
+        const denied = guard(get().session?.role, "purchase.pay");
+        if (denied) return denied;
+        const state = get();
+        const purchase = state.purchases.find((p) => p.id === purchaseId);
+        if (!purchase) return "Purchase not found";
+        if (purchase.status === "cancelled") return "Cannot pay a cancelled purchase";
+        const amt = Math.max(0, Math.round(amount));
+        if (amt <= 0) return "Amount must be positive";
+        if (amt > purchase.balance_due) return "Cannot pay more than the balance due";
+        const payId = state.next.purchase_payment;
+        const payment: PurchasePayment = {
+          id: payId,
+          purchase_id: purchaseId,
+          branch_id: state.currentBranchId,
+          created_at: new Date().toISOString(),
+          amount: amt,
+          method,
+          notes: notes.trim(),
+          user_id: state.session!.userId,
+        };
+        const newPaid = purchase.paid + amt;
+        const newBalance = purchase.balance_due - amt;
+        set({
+          purchases: state.purchases.map((p) =>
+            p.id === purchaseId ? { ...p, paid: newPaid, balance_due: newBalance } : p,
+          ),
+          purchase_payments: [...state.purchase_payments, payment],
+          suppliers: state.suppliers.map((s) =>
+            s.id === purchase.supplier_id ? { ...s, balance: Math.max(0, s.balance - amt) } : s,
+          ),
+          next: { ...state.next, purchase_payment: payId + 1 },
+        });
+        return null;
+      },
+
+      cancelPurchase: (purchaseId) => {
+        const denied = guard(get().session?.role, "purchase.cancel");
+        if (denied) return denied;
+        const state = get();
+        const purchase = state.purchases.find((p) => p.id === purchaseId);
+        if (!purchase) return "Purchase not found";
+        if (purchase.status === "received") return "Cannot cancel a fully received purchase";
+        if (purchase.status === "cancelled") return null;
+        // If any stock was already received, reverse it
+        let stocks = state.branch_stocks || [];
+        const stockMoves: any[] = [];
+        if (purchase.items.some((i) => i.qty_received > 0)) {
+          for (const item of purchase.items) {
+            if (item.qty_received <= 0) continue;
+            const result = applyStockDelta(stocks, item.product_id, purchase.branch_id, -item.qty_received);
+            if ("error" in result) return `Cannot reverse stock for ${item.name}: ${result.error}`;
+            stocks = result.stocks;
+            stockMoves.push({
+              id: state.next.stock_move + stockMoves.length,
+              branch_id: purchase.branch_id,
+              created_at: new Date().toISOString(),
+              product_id: item.product_id,
+              product_name: item.name,
+              delta: -item.qty_received,
+              stock_after: result.stock_after,
+              reason: `Purchase #${purchaseId} cancel`,
+              user_id: state.session!.userId,
+              ref_type: "purchase" as const,
+              ref_id: purchaseId,
+            });
+          }
+        }
+        set({
+          purchases: state.purchases.map((p) =>
+            p.id === purchaseId ? { ...p, status: "cancelled" as const, items: p.items.map((i) => ({ ...i, qty_received: 0 })) } : p,
+          ),
+          branch_stocks: stocks,
+          stock_moves: [...state.stock_moves, ...stockMoves],
+          next: { ...state.next, stock_move: state.next.stock_move + stockMoves.length },
+        });
+        return null;
+      },
+
+      // ── Transfers ──────────────────────────────────────────────────────
+      createTransfer: (toBranchId, items, notes = "") => {
+        const denied = guard(get().session?.role, "transfer.write");
+        if (denied) return denied;
+        const state = get();
+        if (toBranchId === state.currentBranchId) return "Cannot transfer to the same branch";
+        const toBranch = state.branches.find((b) => b.id === toBranchId && b.isActive);
+        if (!toBranch) return "Destination branch not found or inactive";
+        if (!items.length) return "Add at least one item";
+        const transferItems: TransferItem[] = [];
+        for (const it of items) {
+          const product = state.products.find((p) => p.id === it.product_id);
+          if (!product) return `Product #${it.product_id} not found`;
+          const qty = Math.max(0, Math.round(it.qty));
+          if (qty <= 0) return "Quantity must be positive";
+          const available = getStockQty(state.branch_stocks || [], it.product_id, state.currentBranchId);
+          if (qty > available) return `Not enough stock of ${product.name} (have ${available})`;
+          transferItems.push({
+            product_id: product.id,
+            name: product.name,
+            qty_requested: qty,
+            qty_dispatched: 0,
+            qty_received: 0,
+          });
+        }
+        const id = state.next.transfer;
+        const transfer: StockTransfer = {
+          id,
+          from_branch_id: state.currentBranchId,
+          to_branch_id: toBranchId,
+          created_at: new Date().toISOString(),
+          dispatched_at: null,
+          received_at: null,
+          status: "draft",
+          items: transferItems,
+          notes: notes.trim(),
+          created_by: state.session!.userId,
+        };
+        set({
+          transfers: [...state.transfers, transfer],
+          next: { ...state.next, transfer: id + 1 },
+        });
+        return null;
+      },
+
+      dispatchTransfer: (transferId) => {
+        const denied = guard(get().session?.role, "transfer.dispatch");
+        if (denied) return denied;
+        const state = get();
+        const transfer = state.transfers.find((t) => t.id === transferId);
+        if (!transfer) return "Transfer not found";
+        if (transfer.status !== "draft") return "Only draft transfers can be dispatched";
+        if (transfer.from_branch_id !== state.currentBranchId) {
+          return "Switch to the source branch to dispatch this transfer";
+        }
+        let stocks = state.branch_stocks || [];
+        const stockMoves: any[] = [];
+        for (const item of transfer.items) {
+          const result = applyStockDelta(stocks, item.product_id, transfer.from_branch_id, -item.qty_requested);
+          if ("error" in result) return `Insufficient stock for ${item.name}`;
+          stocks = result.stocks;
+          stockMoves.push({
+            id: state.next.stock_move + stockMoves.length,
+            branch_id: transfer.from_branch_id,
+            created_at: new Date().toISOString(),
+            product_id: item.product_id,
+            product_name: item.name,
+            delta: -item.qty_requested,
+            stock_after: result.stock_after,
+            reason: `Transfer #${transferId} dispatch`,
+            user_id: state.session!.userId,
+            ref_type: "transfer_out" as const,
+            ref_id: transferId,
+          });
+        }
+        set({
+          transfers: state.transfers.map((t) =>
+            t.id === transferId
+              ? {
+                  ...t,
+                  status: "dispatched" as const,
+                  dispatched_at: new Date().toISOString(),
+                  items: t.items.map((i) => ({ ...i, qty_dispatched: i.qty_requested })),
+                }
+              : t,
+          ),
+          branch_stocks: stocks,
+          stock_moves: [...state.stock_moves, ...stockMoves],
+          next: { ...state.next, stock_move: state.next.stock_move + stockMoves.length },
+        });
+        return null;
+      },
+
+      receiveTransfer: (transferId, received) => {
+        const denied = guard(get().session?.role, "transfer.receive");
+        if (denied) return denied;
+        const state = get();
+        const transfer = state.transfers.find((t) => t.id === transferId);
+        if (!transfer) return "Transfer not found";
+        if (transfer.status !== "dispatched" && transfer.status !== "partial") {
+          return "Transfer must be dispatched before receiving";
+        }
+        if (transfer.to_branch_id !== state.currentBranchId) {
+          return "Switch to the destination branch to receive this transfer";
+        }
+        let stocks = state.branch_stocks || [];
+        const stockMoves: any[] = [];
+        const newItems = transfer.items.map((item) => {
+          const recv = received.find((r) => r.product_id === item.product_id);
+          if (!recv) return item;
+          const qty = Math.max(0, Math.round(recv.qty));
+          const remaining = item.qty_dispatched - item.qty_received;
+          const toReceive = Math.min(qty, remaining);
+          if (toReceive <= 0) return item;
+          const result = applyStockDelta(stocks, item.product_id, transfer.to_branch_id, toReceive);
+          if ("error" in result) throw new Error(result.error);
+          stocks = result.stocks;
+          stockMoves.push({
+            id: state.next.stock_move + stockMoves.length,
+            branch_id: transfer.to_branch_id,
+            created_at: new Date().toISOString(),
+            product_id: item.product_id,
+            product_name: item.name,
+            delta: toReceive,
+            stock_after: result.stock_after,
+            reason: `Transfer #${transferId} receive`,
+            user_id: state.session!.userId,
+            ref_type: "transfer_in" as const,
+            ref_id: transferId,
+          });
+          return { ...item, qty_received: item.qty_received + toReceive };
+        });
+        const allReceived = newItems.every((i) => i.qty_received >= i.qty_dispatched);
+        const status = allReceived ? "received" : "partial";
+        set({
+          transfers: state.transfers.map((t) =>
+            t.id === transferId
+              ? {
+                  ...t,
+                  items: newItems,
+                  status,
+                  received_at: allReceived ? new Date().toISOString() : t.received_at,
+                }
+              : t,
+          ),
+          branch_stocks: stocks,
+          stock_moves: [...state.stock_moves, ...stockMoves],
+          next: { ...state.next, stock_move: state.next.stock_move + stockMoves.length },
+        });
+        return null;
+      },
+
+      cancelTransfer: (transferId) => {
+        const denied = guard(get().session?.role, "transfer.cancel");
+        if (denied) return denied;
+        const state = get();
+        const transfer = state.transfers.find((t) => t.id === transferId);
+        if (!transfer) return "Transfer not found";
+        if (transfer.status === "received") return "Cannot cancel a fully received transfer";
+        if (transfer.status === "cancelled") return null;
+
+        let stocks = state.branch_stocks || [];
+        const stockMoves: any[] = [];
+
+        // If already dispatched, put stock back to source
+        if (transfer.status === "dispatched" || transfer.status === "partial") {
+          for (const item of transfer.items) {
+            const alreadyReceived = item.qty_received;
+            const stillOut = item.qty_dispatched - alreadyReceived;
+            if (stillOut > 0) {
+              const result = applyStockDelta(stocks, item.product_id, transfer.from_branch_id, stillOut);
+              if ("error" in result) return `Cannot reverse stock for ${item.name}`;
+              stocks = result.stocks;
+              stockMoves.push({
+                id: state.next.stock_move + stockMoves.length,
+                branch_id: transfer.from_branch_id,
+                created_at: new Date().toISOString(),
+                product_id: item.product_id,
+                product_name: item.name,
+                delta: stillOut,
+                stock_after: result.stock_after,
+                reason: `Transfer #${transferId} cancel`,
+                user_id: state.session!.userId,
+                ref_type: "transfer_out" as const,
+                ref_id: transferId,
+              });
+            }
+          }
+        }
+
+        set({
+          transfers: state.transfers.map((t) =>
+            t.id === transferId ? { ...t, status: "cancelled" as const } : t,
+          ),
+          branch_stocks: stocks,
+          stock_moves: [...state.stock_moves, ...stockMoves],
+          next: { ...state.next, stock_move: state.next.stock_move + stockMoves.length },
+        });
+        return null;
+      },
     }),
     {
       name: KEY,
