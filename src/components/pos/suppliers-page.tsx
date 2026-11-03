@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PageHeader } from "@/components/pos/page-header";
 import { usePosStore } from "@/lib/pos/store";
-import { formatMoney } from "@/lib/pos/format";
+import { formatMoney } from "@/lib/pos/money";
 import { can } from "@/lib/pos/permissions";
 import { toast } from "sonner";
 
@@ -112,7 +112,7 @@ export function SuppliersPage() {
                   <td className="px-4 py-3 text-muted">{s.phone || "—"}</td>
                   <td className="px-4 py-3 text-muted">{s.address || "—"}</td>
                   <td className="px-4 py-3 text-right tabular-nums">
-                    {formatMoney(s.balance, settings)}
+                    {formatMoney(s.balance, settings.currency, settings.locale)}
                   </td>
                   {canWrite && (
                     <td className="px-4 py-3 text-right">
