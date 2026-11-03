@@ -7,9 +7,12 @@ import { DashboardPage } from "@/components/pos/dashboard-page";
 import { ExpensesPage } from "@/components/pos/expenses-page";
 import { InventoryPage } from "@/components/pos/inventory-page";
 import { LoginScreen } from "@/components/pos/login-screen";
+import { PurchasesPage } from "@/components/pos/purchases-page";
 import { ReceiptOverlay } from "@/components/pos/receipt";
 import { SalesPage } from "@/components/pos/sales-page";
 import { SettingsPage } from "@/components/pos/settings-page";
+import { SuppliersPage } from "@/components/pos/suppliers-page";
+import { TransfersPage } from "@/components/pos/transfers-page";
 import { isRtlLocale } from "@/lib/pos/money";
 import { canView } from "@/lib/pos/permissions";
 import { usePosStore } from "@/lib/pos/store";
@@ -46,6 +49,9 @@ export function PosApp() {
       {view === "customers" ? <CustomersPage /> : null}
       {view === "sales" ? <SalesPage /> : null}
       {view === "expenses" ? <ExpensesPage /> : null}
+      {view === "purchases" ? <PurchasesPage /> : null}
+      {view === "suppliers" ? <SuppliersPage /> : null}
+      {view === "transfers" ? <TransfersPage /> : null}
       {view === "settings" ? <SettingsPage /> : null}
       <ReceiptOverlay />
     </AppShell>
