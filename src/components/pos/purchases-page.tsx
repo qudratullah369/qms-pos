@@ -5,7 +5,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { PageHeader } from "@/components/pos/page-header";
 import { usePosStore } from "@/lib/pos/store";
-import { formatMoney } from "@/lib/pos/format";
+import { formatMoney } from "@/lib/pos/money";
 import { can } from "@/lib/pos/permissions";
 import { toast } from "sonner";
 import type { TenderMethod } from "@/lib/pos/types";
@@ -90,6 +90,7 @@ export function PurchasesPage() {
   }
 
   const sorted = [...purchases].sort((a, b) => b.id - a.id);
+  const money = (n: number) => formatMoney(n, settings.currency, settings.locale);
 
   return (
     <div className="space-y-5">
@@ -278,16 +279,16 @@ export function PurchasesPage() {
                   </p>
                 </div>
                 <div className="text-right">
-                  <p className="font-medium tabular-nums">{formatMoney(p.total, settings)}</p>
+                  <p className="font-medium tabular-nums">{money(p.total)}</p>
                   <p className="text-xs text-muted">
-                    Paid {formatMoney(p.paid, settings)} · Due {formatMoney(p.balance_due, settings)}
+                    Paid {money(p.paid)} · Due {money(p.balance_due)}
                   </p>
                 </div>
               </div>
               <ul className="mt-2 space-y-1 text-sm text-muted">
                 {p.items.map((i) => (
                   <li key={i.product_id}>
-                    {i.name} × {i.qty_ordered} @ {formatMoney(i.unit_cost, settings)}
+                    {i.name} × {i.qty_ordered} @ {money(i.unit_cost)}
                     {i.qty_received > 0 && ` (recv ${i.qty_received})`}
                   </li>
                 ))}
